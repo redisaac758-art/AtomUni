@@ -166,6 +166,41 @@ local VisualsState = {
     HitboxTransparency  = 0.6,
     HitboxColor         = Color3.fromRGB(157, 48, 255),
     HitboxMaterial      = "ForceField",
+
+    -- Visual Enhancements
+    HealthBasedColor    = false,
+    LookRays            = false,
+    LookRayLength       = 7,
+    LookRayColor        = Color3.fromRGB(255, 100, 100),
+    SkeletonESP         = false,
+    SkeletonColor       = Color3.fromRGB(220, 220, 255),
+
+    -- World Visuals
+    CustomTime          = false,
+    TimeOfDay           = 14,
+    SkyPreset           = "Default",
+    NoFog               = false,
+
+    -- Target HUD
+    TargetHUD           = true,
+
+    -- Player Whitelist ([UserId] = true)
+    Whitelisted         = {},
+
+    -- Custom Crosshairs
+    CrosshairEnabled    = false,
+    CrosshairStyle      = "Cross",    -- "Cross", "Dot", "T-Shape", "Circle"
+    CrosshairSize       = 12,
+    CrosshairGap        = 4,
+    CrosshairThickness  = 2,
+    CrosshairColor      = Color3.fromRGB(0, 255, 180),
+    CrosshairSpin       = false,
+    CrosshairSpinSpeed  = 2,
+
+    -- Mini-Radar
+    RadarEnabled        = false,
+    RadarRange          = 150,
+    RadarSize           = 130,
 }
 
 --//==================================================
@@ -524,16 +559,17 @@ end
 --//==================================================
 
 local function getBestAimbotTarget()
-    if not VisualsState.AimbotEnabled then return nil end
+    if not VisualsState.AimbotEnabled then return nil, nil end
     local refPt = getAimReferencePoint()
     local bestTarget = nil
+    local bestTargetPlayer = nil
     local bestDist = VisualsState.FOVRadius
 
     local myTeam = nil
     pcall(function() myTeam = LocalPlayer.Team end)
 
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
+        if plr ~= LocalPlayer and not VisualsState.Whitelisted[plr.UserId] then
             local isTeammate = false
             if VisualsState.AimbotTeamCheck and myTeam and plr.Team == myTeam then
                 isTeammate = true
@@ -568,6 +604,7 @@ local function getBestAimbotTarget()
                                 if isVisible then
                                     bestDist = dist
                                     bestTarget = part
+                                    bestTargetPlayer = plr
                                 end
                             end
                         end
@@ -577,11 +614,157 @@ local function getBestAimbotTarget()
         end
     end
 
-    return bestTarget
+    return bestTarget, bestTargetPlayer
+end
+
+--//==================================================
+--// TARGET HUD ENGINE (NEXT TO FOV CIRCLE)
+--//==================================================
+
+local TargetHUDFrame = nil
+local TargetAvatarImg = nil
+local TargetNameLabel = nil
+local TargetLookLabel = nil
+local TargetStatusLabel = nil
+
+local function ensureTargetHUD()
+    local container = ensureScreenGuiContainer()
+    if not container then return nil end
+
+    if TargetHUDFrame and TargetHUDFrame.Parent then return TargetHUDFrame end
+    if TargetHUDFrame then pcall(function() TargetHUDFrame:Destroy() end) end
+
+    TargetHUDFrame = Instance.new("Frame")
+    TargetHUDFrame.Name = "AtomwareTargetHUD"
+    TargetHUDFrame.AnchorPoint = Vector2.new(0, 0.5)
+    TargetHUDFrame.Size = UDim2.fromOffset(205, 68)
+    TargetHUDFrame.BackgroundColor3 = Color3.fromRGB(12, 10, 22)
+    TargetHUDFrame.BackgroundTransparency = 0.15
+    TargetHUDFrame.BorderSizePixel = 0
+    TargetHUDFrame.Visible = false
+    TargetHUDFrame.ZIndex = 25
+    pcall(function() TargetHUDFrame.Parent = container end)
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = TargetHUDFrame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = VisualsState.FOVColor
+    stroke.Thickness = 1.2
+    stroke.Parent = TargetHUDFrame
+
+    TargetAvatarImg = Instance.new("ImageLabel")
+    TargetAvatarImg.Name = "Avatar"
+    TargetAvatarImg.Size = UDim2.fromOffset(50, 50)
+    TargetAvatarImg.Position = UDim2.fromOffset(9, 9)
+    TargetAvatarImg.BackgroundColor3 = Color3.fromRGB(20, 16, 35)
+    TargetAvatarImg.BorderSizePixel = 0
+    TargetAvatarImg.ZIndex = 26
+    TargetAvatarImg.Parent = TargetHUDFrame
+    local aCorner = Instance.new("UICorner")
+    aCorner.CornerRadius = UDim.new(0, 6)
+    aCorner.Parent = TargetAvatarImg
+
+    TargetNameLabel = Instance.new("TextLabel")
+    TargetNameLabel.Name = "NameLabel"
+    TargetNameLabel.Size = UDim2.new(1, -70, 0, 16)
+    TargetNameLabel.Position = UDim2.fromOffset(66, 9)
+    TargetNameLabel.BackgroundTransparency = 1
+    TargetNameLabel.Font = Enum.Font.GothamBold
+    TargetNameLabel.TextSize = 12
+    TargetNameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TargetNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TargetNameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    TargetNameLabel.ZIndex = 26
+    TargetNameLabel.Parent = TargetHUDFrame
+
+    TargetLookLabel = Instance.new("TextLabel")
+    TargetLookLabel.Name = "LookLabel"
+    TargetLookLabel.Size = UDim2.new(1, -70, 0, 14)
+    TargetLookLabel.Position = UDim2.fromOffset(66, 28)
+    TargetLookLabel.BackgroundTransparency = 1
+    TargetLookLabel.Font = Enum.Font.GothamMedium
+    TargetLookLabel.TextSize = 10
+    TargetLookLabel.TextColor3 = Color3.fromRGB(180, 175, 215)
+    TargetLookLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TargetLookLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    TargetLookLabel.ZIndex = 26
+    TargetLookLabel.Parent = TargetHUDFrame
+
+    TargetStatusLabel = Instance.new("TextLabel")
+    TargetStatusLabel.Name = "StatusLabel"
+    TargetStatusLabel.Size = UDim2.new(1, -70, 0, 14)
+    TargetStatusLabel.Position = UDim2.fromOffset(66, 45)
+    TargetStatusLabel.BackgroundTransparency = 1
+    TargetStatusLabel.Font = Enum.Font.GothamBold
+    TargetStatusLabel.TextSize = 10
+    TargetStatusLabel.TextColor3 = Color3.fromRGB(42, 255, 157)
+    TargetStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TargetStatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    TargetStatusLabel.ZIndex = 26
+    TargetStatusLabel.Parent = TargetHUDFrame
+
+    return TargetHUDFrame
+end
+
+local function updateTargetHUD(targetPart, isAiming, bestTargetPlayer)
+    if not (VisualsState.AimbotEnabled and VisualsState.TargetHUD and targetPart and bestTargetPlayer) then
+        if TargetHUDFrame then TargetHUDFrame.Visible = false end
+        return
+    end
+
+    ensureTargetHUD()
+    if not TargetHUDFrame then return end
+
+    local rad = VisualsState.FOVRadius
+    local center = getAimReferencePoint()
+    TargetHUDFrame.Position = UDim2.fromOffset(center.X + rad + 16, center.Y - 34)
+
+    TargetAvatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(bestTargetPlayer.UserId) .. "&w=100&h=100"
+    TargetNameLabel.Text = bestTargetPlayer.DisplayName .. " (@" .. bestTargetPlayer.Name .. ")"
+
+    -- Looking at you check
+    local tChar = bestTargetPlayer.Character
+    local tHead = tChar and tChar:FindFirstChild("Head")
+    local myChar = LocalPlayer.Character
+    local myHead = myChar and myChar:FindFirstChild("Head")
+
+    if tHead and myHead then
+        local dirToMe = (myHead.Position - tHead.Position).Unit
+        local lookDot = tHead.CFrame.LookVector:Dot(dirToMe)
+        if lookDot > 0.65 then
+            TargetLookLabel.Text = "⚠ Looking directly at you"
+            TargetLookLabel.TextColor3 = Color3.fromRGB(255, 75, 100)
+        else
+            TargetLookLabel.Text = "Looking away (" .. math.floor(math.acos(math.clamp(lookDot, -1, 1)) * 57.29) .. "°)"
+            TargetLookLabel.TextColor3 = Color3.fromRGB(160, 150, 200)
+        end
+    else
+        TargetLookLabel.Text = "Target in view"
+        TargetLookLabel.TextColor3 = Color3.fromRGB(160, 150, 200)
+    end
+
+    -- Whitelisted / Lock status
+    if VisualsState.Whitelisted[bestTargetPlayer.UserId] then
+        TargetStatusLabel.Text = "★ Whitelisted"
+        TargetStatusLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    elseif isAiming then
+        TargetStatusLabel.Text = "● LOCKED ON TARGET"
+        TargetStatusLabel.TextColor3 = Color3.fromRGB(42, 255, 157)
+    else
+        TargetStatusLabel.Text = "○ In FOV Range"
+        TargetStatusLabel.TextColor3 = Color3.fromRGB(180, 175, 215)
+    end
+
+    TargetHUDFrame.Visible = true
 end
 
 local function updateAimbot()
-    if not VisualsState.AimbotEnabled then return end
+    if not VisualsState.AimbotEnabled then
+        if TargetHUDFrame then TargetHUDFrame.Visible = false end
+        return
+    end
 
     local isAiming = false
     if VisualsState.AimLock then
@@ -592,43 +775,45 @@ local function updateAimbot()
         isAiming = true
     end
 
-    if isAiming then
-        local targetPart = getBestAimbotTarget()
-        if targetPart then
-            if VisualsState.AimType == "Mouse/Touch Aim" then
-                -- Follows mouse cursor / touch in 3rd person
-                local targetScreen, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                if onScreen and targetScreen.Z > 0 then
-                    local mousePos = UserInputService:GetMouseLocation()
-                    local deltaX = targetScreen.X - mousePos.X
-                    local deltaY = targetScreen.Y - mousePos.Y
+    local targetPart, targetPlayer = getBestAimbotTarget()
 
-                    if type(mousemoverel) == "function" then
+    -- Target HUD is updated regardless of whether we're locking, as long as target is in FOV
+    pcall(updateTargetHUD, targetPart, isAiming, targetPlayer)
+
+    if isAiming and targetPart then
+        if VisualsState.AimType == "Mouse/Touch Aim" then
+            -- Follows mouse cursor / touch in 3rd person
+            local targetScreen, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+            if onScreen and targetScreen.Z > 0 then
+                local mousePos = UserInputService:GetMouseLocation()
+                local deltaX = targetScreen.X - mousePos.X
+                local deltaY = targetScreen.Y - mousePos.Y
+
+                if type(mousemoverel) == "function" then
+                    local smooth = math.max(VisualsState.AimbotSmoothness, 1)
+                    mousemoverel(deltaX / smooth, deltaY / smooth)
+                else
+                    local rayMouse = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+                    local rayTarget = (targetPart.Position - Camera.CFrame.Position).Unit
+                    local cross = rayMouse.Direction:Cross(rayTarget)
+                    local dot = math.clamp(rayMouse.Direction:Dot(rayTarget), -1, 1)
+                    local angle = math.acos(dot)
+                    if cross.Magnitude > 1e-4 and angle > 1e-4 then
+                        local rotAxis = cross.Unit
                         local smooth = math.max(VisualsState.AimbotSmoothness, 1)
-                        mousemoverel(deltaX / smooth, deltaY / smooth)
-                    else
-                        local rayMouse = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-                        local rayTarget = (targetPart.Position - Camera.CFrame.Position).Unit
-                        local cross = rayMouse.Direction:Cross(rayTarget)
-                        local dot = math.clamp(rayMouse.Direction:Dot(rayTarget), -1, 1)
-                        local angle = math.acos(dot)
-                        if cross.Magnitude > 1e-4 and angle > 1e-4 then
-                            local rotAxis = cross.Unit
-                            local smooth = math.max(VisualsState.AimbotSmoothness, 1)
-                            local stepAngle = angle / smooth
-                            Camera.CFrame = CFrame.fromAxisAngle(rotAxis, stepAngle) * Camera.CFrame
-                        end
+                        local stepAngle = angle / smooth
+                        Camera.CFrame = CFrame.fromAxisAngle(rotAxis, stepAngle) * Camera.CFrame
                     end
                 end
+            end
+        else
+            -- "Camera Aim": Follows camera
+            local targetCF = CFrame.lookAt(Camera.CFrame.Position, targetPart.Position)
+            if VisualsState.AimbotSmoothness > 1 then
+                local alpha = math.clamp(1 / VisualsState.AimbotSmoothness, 0.05, 1)
+                Camera.CFrame = Camera.CFrame:Lerp(targetCF, alpha)
             else
-                -- "Camera Aim": Follows camera
-                local targetCF = CFrame.lookAt(Camera.CFrame.Position, targetPart.Position)
-                if VisualsState.AimbotSmoothness > 1 then
-                    local alpha = math.clamp(1 / VisualsState.AimbotSmoothness, 0.05, 1)
-                    Camera.CFrame = Camera.CFrame:Lerp(targetCF, alpha)
-                else
-                    Camera.CFrame = targetCF
-                end
+                Camera.CFrame = targetCF
             end
         end
     end
@@ -913,6 +1098,30 @@ local function createPlayerESP(player)
     tracerFrame.ZIndex = 2
     tracerFrame.Parent = holder
 
+    -- 9. Look Direction Ray (Head Tracer)
+    local lookRayLine = Instance.new("Frame")
+    lookRayLine.Name = "LookRayLine"
+    lookRayLine.AnchorPoint = Vector2.new(0.5, 0.5)
+    lookRayLine.BorderSizePixel = 0
+    lookRayLine.BackgroundColor3 = VisualsState.LookRayColor
+    lookRayLine.Visible = false
+    lookRayLine.ZIndex = 4
+    lookRayLine.Parent = holder
+
+    -- 10. Skeleton / Bone Lines (14 segments for R15/R6)
+    local skeletonLines = {}
+    for i = 1, 14 do
+        local bLine = Instance.new("Frame")
+        bLine.Name = "BoneLine_" .. i
+        bLine.AnchorPoint = Vector2.new(0.5, 0.5)
+        bLine.BorderSizePixel = 0
+        bLine.BackgroundColor3 = VisualsState.SkeletonColor
+        bLine.Visible = false
+        bLine.ZIndex = 3
+        bLine.Parent = holder
+        table.insert(skeletonLines, bLine)
+    end
+
     return {
         Player = player,
         Holder = holder,
@@ -928,6 +1137,8 @@ local function createPlayerESP(player)
         DistanceLabel = distanceLabel,
         ToolLabel = toolLabel,
         TracerFrame = tracerFrame,
+        LookRayLine = lookRayLine,
+        SkeletonLines = skeletonLines,
         ChineseHatPart = nil,
     }
 end
@@ -1090,12 +1301,25 @@ local function hidePlayerVisuals(entry)
     if entry.DistanceLabel then entry.DistanceLabel.Visible = false end
     entry.ToolLabel.Visible = false
     entry.TracerFrame.Visible = false
+    if entry.LookRayLine then entry.LookRayLine.Visible = false end
+    if entry.SkeletonLines then
+        for _, l in ipairs(entry.SkeletonLines) do l.Visible = false end
+    end
 end
 
 local function updatePlayer(entry)
     local plr = entry.Player
     local isLocal = (plr == LocalPlayer)
     local char = plr.Character
+
+    if VisualsState.Whitelisted[plr.UserId] then
+        hidePlayerVisuals(entry)
+        if entry.ChineseHatPart then
+            pcall(function() entry.ChineseHatPart:Destroy() end)
+            entry.ChineseHatPart = nil
+        end
+        return
+    end
 
     if not char then
         hidePlayerVisuals(entry)
@@ -1146,6 +1370,12 @@ local function updatePlayer(entry)
     end
 
     local espColor = (isTeammate and VisualsState.TeamColor) or VisualsState.ESPColor
+    if VisualsState.HealthBasedColor and hum and hum.Health > 0 then
+        local maxHp = (hum.MaxHealth > 0) and hum.MaxHealth or 100
+        local hpPct = math.clamp(hum.Health / maxHp, 0, 1)
+        espColor = Color3.fromHSV(hpPct * 0.33, 0.9, 1)
+    end
+
     local rig = getCharacterRigType(char)
 
     -- Calculate 3D to 2D screen projections
@@ -1338,6 +1568,471 @@ local function updatePlayer(entry)
     else
         entry.TracerFrame.Visible = false
     end
+
+    -- 6. Skeleton / Bone ESP (R6 and R15 rigs)
+    if VisualsState.SkeletonESP and not isLocal and entry.SkeletonLines then
+        local pairsList = nil
+        if rig == "R15" then
+            pairsList = {
+                { "Head", "UpperTorso" },
+                { "UpperTorso", "LowerTorso" },
+                { "UpperTorso", "LeftUpperArm" },
+                { "LeftUpperArm", "LeftLowerArm" },
+                { "LeftLowerArm", "LeftHand" },
+                { "UpperTorso", "RightUpperArm" },
+                { "RightUpperArm", "RightLowerArm" },
+                { "RightLowerArm", "RightHand" },
+                { "LowerTorso", "LeftUpperLeg" },
+                { "LeftUpperLeg", "LeftLowerLeg" },
+                { "LeftLowerLeg", "LeftFoot" },
+                { "LowerTorso", "RightUpperLeg" },
+                { "RightUpperLeg", "RightLowerLeg" },
+                { "RightLowerLeg", "RightFoot" },
+            }
+        else -- R6
+            pairsList = {
+                { "Head", "Torso" },
+                { "Torso", "Left Arm" },
+                { "Torso", "Right Arm" },
+                { "Torso", "Left Leg" },
+                { "Torso", "Right Leg" },
+            }
+        end
+
+        local lineIdx = 1
+        for _, pair in ipairs(pairsList) do
+            local p1 = char:FindFirstChild(pair[1])
+            local p2 = char:FindFirstChild(pair[2])
+            if p1 and p2 then
+                local s1, on1 = Camera:WorldToViewportPoint(p1.Position)
+                local s2, on2 = Camera:WorldToViewportPoint(p2.Position)
+                if s1.Z > 0 and s2.Z > 0 then
+                    local dx = s2.X - s1.X
+                    local dy = s2.Y - s1.Y
+                    local dist = math.sqrt(dx * dx + dy * dy)
+                    local mid = Vector2.new((s1.X + s2.X) * 0.5, (s1.Y + s2.Y) * 0.5)
+                    local angle = math.deg(math.atan2(dy, dx))
+
+                    local bLine = entry.SkeletonLines[lineIdx]
+                    if bLine then
+                        bLine.Size = UDim2.fromOffset(dist, 1.5)
+                        bLine.Position = UDim2.fromOffset(mid.X, mid.Y)
+                        bLine.Rotation = angle
+                        bLine.BackgroundColor3 = VisualsState.SkeletonColor
+                        bLine.Visible = true
+                        lineIdx = lineIdx + 1
+                    end
+                end
+            end
+        end
+        for i = lineIdx, #entry.SkeletonLines do
+            entry.SkeletonLines[i].Visible = false
+        end
+    elseif entry.SkeletonLines then
+        for _, bLine in ipairs(entry.SkeletonLines) do
+            bLine.Visible = false
+        end
+    end
+
+    -- 7. Look Direction / Head Tracers (Look Rays)
+    if VisualsState.LookRays and not isLocal and entry.LookRayLine then
+        local head = char:FindFirstChild("Head")
+        if head then
+            local rayEnd = head.Position + (head.CFrame.LookVector * VisualsState.LookRayLength)
+            local s1, on1 = Camera:WorldToViewportPoint(head.Position)
+            local s2, on2 = Camera:WorldToViewportPoint(rayEnd)
+            if s1.Z > 0 and s2.Z > 0 then
+                local dx = s2.X - s1.X
+                local dy = s2.Y - s1.Y
+                local dist = math.sqrt(dx * dx + dy * dy)
+                local mid = Vector2.new((s1.X + s2.X) * 0.5, (s1.Y + s2.Y) * 0.5)
+                local angle = math.deg(math.atan2(dy, dx))
+
+                entry.LookRayLine.Size = UDim2.fromOffset(dist, 1.8)
+                entry.LookRayLine.Position = UDim2.fromOffset(mid.X, mid.Y)
+                entry.LookRayLine.Rotation = angle
+                entry.LookRayLine.BackgroundColor3 = VisualsState.LookRayColor
+                entry.LookRayLine.Visible = true
+            else
+                entry.LookRayLine.Visible = false
+            end
+        else
+            entry.LookRayLine.Visible = false
+        end
+    elseif entry.LookRayLine then
+        entry.LookRayLine.Visible = false
+    end
+end
+
+--//==================================================
+--// CUSTOM CROSSHAIR ENGINE
+--//==================================================
+
+local CrosshairHolder = nil
+local CrosshairLines = {}
+local CrosshairDot = nil
+local CrosshairCircle = nil
+local CrosshairCircleStroke = nil
+
+local function ensureCrosshair()
+    local container = ensureScreenGuiContainer()
+    if not container then return nil end
+
+    if CrosshairHolder and CrosshairHolder.Parent then return CrosshairHolder end
+    if CrosshairHolder then pcall(function() CrosshairHolder:Destroy() end) end
+    table.clear(CrosshairLines)
+
+    CrosshairHolder = Instance.new("Frame")
+    CrosshairHolder.Name = "AtomwareCrosshair"
+    CrosshairHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+    CrosshairHolder.Size = UDim2.fromOffset(80, 80)
+    CrosshairHolder.BackgroundTransparency = 1
+    CrosshairHolder.BorderSizePixel = 0
+    CrosshairHolder.Visible = false
+    CrosshairHolder.ZIndex = 20
+    pcall(function() CrosshairHolder.Parent = container end)
+
+    for _, name in ipairs({ "Top", "Bottom", "Left", "Right" }) do
+        local line = Instance.new("Frame")
+        line.Name = name
+        line.AnchorPoint = Vector2.new(0.5, 0.5)
+        line.BorderSizePixel = 0
+        line.BackgroundColor3 = VisualsState.CrosshairColor
+        line.ZIndex = 21
+        line.Parent = CrosshairHolder
+        CrosshairLines[name] = line
+    end
+
+    CrosshairDot = Instance.new("Frame")
+    CrosshairDot.Name = "Dot"
+    CrosshairDot.AnchorPoint = Vector2.new(0.5, 0.5)
+    CrosshairDot.BorderSizePixel = 0
+    CrosshairDot.BackgroundColor3 = VisualsState.CrosshairColor
+    CrosshairDot.Position = UDim2.fromScale(0.5, 0.5)
+    CrosshairDot.Visible = false
+    CrosshairDot.ZIndex = 22
+    CrosshairDot.Parent = CrosshairHolder
+    local dCorner = Instance.new("UICorner")
+    dCorner.CornerRadius = UDim.new(1, 0)
+    dCorner.Parent = CrosshairDot
+
+    CrosshairCircle = Instance.new("Frame")
+    CrosshairCircle.Name = "Circle"
+    CrosshairCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+    CrosshairCircle.BackgroundTransparency = 1
+    CrosshairCircle.BorderSizePixel = 0
+    CrosshairCircle.Position = UDim2.fromScale(0.5, 0.5)
+    CrosshairCircle.Visible = false
+    CrosshairCircle.ZIndex = 21
+    CrosshairCircle.Parent = CrosshairHolder
+    local cCorner = Instance.new("UICorner")
+    cCorner.CornerRadius = UDim.new(1, 0)
+    cCorner.Parent = CrosshairCircle
+    CrosshairCircleStroke = Instance.new("UIStroke")
+    CrosshairCircleStroke.Color = VisualsState.CrosshairColor
+    CrosshairCircleStroke.Thickness = 1.5
+    CrosshairCircleStroke.Parent = CrosshairCircle
+
+    return CrosshairHolder
+end
+
+local function updateCrosshair()
+    if not VisualsState.CrosshairEnabled then
+        if CrosshairHolder then CrosshairHolder.Visible = false end
+        return
+    end
+
+    ensureCrosshair()
+    if not CrosshairHolder then return end
+
+    local center = getAimReferencePoint()
+    CrosshairHolder.Position = UDim2.fromOffset(center.X, center.Y)
+    CrosshairHolder.Visible = true
+
+    if VisualsState.CrosshairSpin then
+        CrosshairHolder.Rotation = (tick() * (VisualsState.CrosshairSpinSpeed * 90)) % 360
+    else
+        CrosshairHolder.Rotation = 0
+    end
+
+    local size = VisualsState.CrosshairSize
+    local gap = VisualsState.CrosshairGap
+    local thick = VisualsState.CrosshairThickness
+    local col = VisualsState.CrosshairColor
+    local style = VisualsState.CrosshairStyle
+
+    if style == "Dot" then
+        CrosshairDot.Size = UDim2.fromOffset(size, size)
+        CrosshairDot.BackgroundColor3 = col
+        CrosshairDot.Visible = true
+        CrosshairCircle.Visible = false
+        for _, l in pairs(CrosshairLines) do l.Visible = false end
+    elseif style == "Circle" then
+        CrosshairCircle.Size = UDim2.fromOffset(size * 2, size * 2)
+        if CrosshairCircleStroke then
+            CrosshairCircleStroke.Color = col
+            CrosshairCircleStroke.Thickness = thick
+        end
+        CrosshairCircle.Visible = true
+        CrosshairDot.Visible = false
+        for _, l in pairs(CrosshairLines) do l.Visible = false end
+    else
+        CrosshairDot.Visible = false
+        CrosshairCircle.Visible = false
+
+        local showTop = (style ~= "T-Shape")
+        CrosshairLines.Top.Visible = showTop
+        if showTop then
+            CrosshairLines.Top.Size = UDim2.fromOffset(thick, size)
+            CrosshairLines.Top.Position = UDim2.new(0.5, 0, 0.5, -(gap + size * 0.5))
+            CrosshairLines.Top.BackgroundColor3 = col
+        end
+
+        CrosshairLines.Bottom.Visible = true
+        CrosshairLines.Bottom.Size = UDim2.fromOffset(thick, size)
+        CrosshairLines.Bottom.Position = UDim2.new(0.5, 0, 0.5, gap + size * 0.5)
+        CrosshairLines.Bottom.BackgroundColor3 = col
+
+        CrosshairLines.Left.Visible = true
+        CrosshairLines.Left.Size = UDim2.fromOffset(size, thick)
+        CrosshairLines.Left.Position = UDim2.new(0.5, -(gap + size * 0.5), 0.5, 0)
+        CrosshairLines.Left.BackgroundColor3 = col
+
+        CrosshairLines.Right.Visible = true
+        CrosshairLines.Right.Size = UDim2.fromOffset(size, thick)
+        CrosshairLines.Right.Position = UDim2.new(0.5, gap + size * 0.5, 0.5, 0)
+        CrosshairLines.Right.BackgroundColor3 = col
+    end
+end
+
+--//==================================================
+--// MINI-RADAR ENGINE (2D TOP-DOWN HUD RADAR)
+--//==================================================
+
+local RadarHolder = nil
+local RadarBlips = {}
+local MAX_RADAR_BLIPS = 32
+
+local function ensureRadar()
+    local container = ensureScreenGuiContainer()
+    if not container then return nil end
+
+    if RadarHolder and RadarHolder.Parent then return RadarHolder end
+    if RadarHolder then pcall(function() RadarHolder:Destroy() end) end
+    table.clear(RadarBlips)
+
+    local size = VisualsState.RadarSize
+    RadarHolder = Instance.new("Frame")
+    RadarHolder.Name = "AtomwareMiniRadar"
+    RadarHolder.Size = UDim2.fromOffset(size, size)
+    RadarHolder.Position = UDim2.fromOffset(18, 56)
+    RadarHolder.BackgroundColor3 = Color3.fromRGB(12, 10, 22)
+    RadarHolder.BackgroundTransparency = 0.25
+    RadarHolder.BorderSizePixel = 0
+    RadarHolder.Visible = false
+    RadarHolder.ZIndex = 15
+    pcall(function() RadarHolder.Parent = container end)
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = RadarHolder
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = VisualsState.ESPColor
+    stroke.Thickness = 1.5
+    stroke.Parent = RadarHolder
+
+    -- Center dot (LocalPlayer)
+    local centerDot = Instance.new("Frame")
+    centerDot.Name = "CenterDot"
+    centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+    centerDot.Size = UDim2.fromOffset(6, 6)
+    centerDot.Position = UDim2.fromScale(0.5, 0.5)
+    centerDot.BackgroundColor3 = Color3.fromRGB(42, 255, 157)
+    centerDot.BorderSizePixel = 0
+    centerDot.ZIndex = 17
+    centerDot.Parent = RadarHolder
+    local cDotCorner = Instance.new("UICorner")
+    cDotCorner.CornerRadius = UDim.new(1, 0)
+    cDotCorner.Parent = centerDot
+
+    -- Axis lines
+    local hLine = Instance.new("Frame")
+    hLine.Size = UDim2.new(1, 0, 0, 1)
+    hLine.Position = UDim2.fromScale(0, 0.5)
+    hLine.BackgroundColor3 = Color3.fromRGB(80, 70, 110)
+    hLine.BackgroundTransparency = 0.5
+    hLine.BorderSizePixel = 0
+    hLine.ZIndex = 16
+    hLine.Parent = RadarHolder
+
+    local vLine = Instance.new("Frame")
+    vLine.Size = UDim2.new(0, 1, 1, 0)
+    vLine.Position = UDim2.fromScale(0.5, 0)
+    vLine.BackgroundColor3 = Color3.fromRGB(80, 70, 110)
+    vLine.BackgroundTransparency = 0.5
+    vLine.BorderSizePixel = 0
+    vLine.ZIndex = 16
+    vLine.Parent = RadarHolder
+
+    -- Pre-create blips
+    for i = 1, MAX_RADAR_BLIPS do
+        local blip = Instance.new("Frame")
+        blip.Name = "Blip_" .. i
+        blip.AnchorPoint = Vector2.new(0.5, 0.5)
+        blip.Size = UDim2.fromOffset(5, 5)
+        blip.BorderSizePixel = 0
+        blip.BackgroundColor3 = VisualsState.ESPColor
+        blip.Visible = false
+        blip.ZIndex = 18
+        blip.Parent = RadarHolder
+        local bCorner = Instance.new("UICorner")
+        bCorner.CornerRadius = UDim.new(1, 0)
+        bCorner.Parent = blip
+        table.insert(RadarBlips, blip)
+    end
+
+    return RadarHolder
+end
+
+local function updateRadar()
+    if not VisualsState.RadarEnabled then
+        if RadarHolder then RadarHolder.Visible = false end
+        return
+    end
+
+    ensureRadar()
+    if not RadarHolder then return end
+
+    RadarHolder.Visible = true
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and getCharacterRoot(myChar)
+    if not myRoot then
+        for _, b in ipairs(RadarBlips) do b.Visible = false end
+        return
+    end
+
+    local myPos = myRoot.Position
+    local camCF = Camera.CFrame
+    local camLook = camCF.LookVector
+    local camAngle = math.atan2(camLook.X, camLook.Z)
+    local cosA = math.cos(-camAngle)
+    local sinA = math.sin(-camAngle)
+
+    local radarRad = (VisualsState.RadarSize * 0.5) - 4
+    local maxRange = VisualsState.RadarRange
+    local blipIdx = 1
+
+    local myTeam = nil
+    pcall(function() myTeam = LocalPlayer.Team end)
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and blipIdx <= MAX_RADAR_BLIPS then
+            local pRoot = getCharacterRoot(plr.Character)
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if pRoot and hum and hum.Health > 0 then
+                local dx = pRoot.Position.X - myPos.X
+                local dz = pRoot.Position.Z - myPos.Z
+                local dist = math.sqrt(dx * dx + dz * dz)
+
+                if dist <= maxRange then
+                    local rotX = dx * cosA - dz * sinA
+                    local rotY = dx * sinA + dz * cosA
+
+                    local px = (rotX / maxRange) * radarRad
+                    local py = (rotY / maxRange) * radarRad
+
+                    local blip = RadarBlips[blipIdx]
+                    if blip then
+                        blip.Position = UDim2.new(0.5, px, 0.5, py)
+                        if VisualsState.Whitelisted[plr.UserId] then
+                            blip.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+                        elseif myTeam and plr.Team == myTeam then
+                            blip.BackgroundColor3 = VisualsState.TeamColor
+                        else
+                            blip.BackgroundColor3 = VisualsState.ESPColor
+                        end
+                        blip.Visible = true
+                        blipIdx = blipIdx + 1
+                    end
+                end
+            end
+        end
+    end
+
+    for i = blipIdx, #RadarBlips do
+        RadarBlips[i].Visible = false
+    end
+end
+
+--//==================================================
+--// WORLD LIGHTING ENGINE (TIME OF DAY, SKYBOX, NO FOG)
+--//==================================================
+
+local Lighting = game:GetService("Lighting")
+local origClockTime = Lighting.ClockTime
+local origFogEnd = Lighting.FogEnd
+local customSky = nil
+
+local skyPresets = {
+    ["Default"] = nil,
+    ["Purple Nebula"] = {
+        SkyboxBk = "rbxassetid://159454299",
+        SkyboxDn = "rbxassetid://159454296",
+        SkyboxFt = "rbxassetid://159454293",
+        SkyboxLf = "rbxassetid://159454286",
+        SkyboxRt = "rbxassetid://159454300",
+        SkyboxUp = "rbxassetid://159454288",
+    },
+    ["Night Galaxy"] = {
+        SkyboxBk = "rbxassetid://600830446",
+        SkyboxDn = "rbxassetid://600831635",
+        SkyboxFt = "rbxassetid://600832720",
+        SkyboxLf = "rbxassetid://600886090",
+        SkyboxRt = "rbxassetid://600833862",
+        SkyboxUp = "rbxassetid://600835177",
+    },
+    ["Synthwave"] = {
+        SkyboxBk = "rbxassetid://2697340578",
+        SkyboxDn = "rbxassetid://2697341398",
+        SkyboxFt = "rbxassetid://2697342111",
+        SkyboxLf = "rbxassetid://2697342809",
+        SkyboxRt = "rbxassetid://2697343514",
+        SkyboxUp = "rbxassetid://2697344158",
+    },
+}
+
+local function applySkyPreset(name)
+    local preset = skyPresets[name]
+    if preset then
+        if not customSky or not customSky.Parent then
+            customSky = Instance.new("Sky")
+            customSky.Name = "AtomwareCustomSky"
+            pcall(function() customSky.Parent = Lighting end)
+        end
+        for prop, val in pairs(preset) do
+            pcall(function() customSky[prop] = val end)
+        end
+    else
+        if customSky then
+            pcall(function() customSky:Destroy() end)
+            customSky = nil
+        end
+    end
+end
+
+local function updateWorldVisuals()
+    if VisualsState.CustomTime then
+        Lighting.ClockTime = VisualsState.TimeOfDay
+    end
+    if VisualsState.NoFog then
+        Lighting.FogEnd = 1e6
+        local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+        if atmo then
+            atmo.Density = 0
+            atmo.Haze = 0
+        end
+    end
 end
 
 -- Render loop with individual try-catch to guarantee crash-free continuous rendering
@@ -1345,7 +2040,16 @@ trackConnection(RunService.RenderStepped:Connect(function()
     -- 1. FOV Circle Update
     pcall(updateFOVCircle)
 
-    -- 2. Aimbot Logic
+    -- 2. Custom Crosshair Update
+    pcall(updateCrosshair)
+
+    -- 3. Mini-Radar Update
+    pcall(updateRadar)
+
+    -- 4. World Visuals Update (ClockTime / Fog)
+    pcall(updateWorldVisuals)
+
+    -- 5. Aimbot Logic & Target HUD
     pcall(updateAimbot)
 
     -- 3. Hitbox Expander Update
@@ -1710,6 +2414,66 @@ end)
 bindSlider("FreeCam Speed", function(v) MovementState.FreeCamSpeed = v end)
 
 --//==================================================
+--// NEW VISUALS, RADAR, CROSSHAIR & WORLD BINDINGS
+--//==================================================
+
+bindToggle("Health-Based Colors", function(v) VisualsState.HealthBasedColor = v end)
+bindToggle("Look Direction Rays", function(v) VisualsState.LookRays = v end)
+bindSlider("Ray Length", function(v) VisualsState.LookRayLength = v end)
+bindColorPicker("Ray Color", function(v) VisualsState.LookRayColor = v end)
+bindToggle("Skeleton / Bone ESP", function(v) VisualsState.SkeletonESP = v end)
+bindColorPicker("Skeleton Color", function(v) VisualsState.SkeletonColor = v end)
+
+-- World Lighting
+bindToggle("No Fog", function(v)
+    VisualsState.NoFog = v
+    if not v then
+        Lighting.FogEnd = origFogEnd
+        local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+        if atmo then atmo.Density = 0.395 atmo.Haze = 0 end
+    end
+end)
+bindToggle("Custom Time", function(v)
+    VisualsState.CustomTime = v
+    if not v then Lighting.ClockTime = origClockTime end
+end)
+bindSlider("Time of Day", function(v) VisualsState.TimeOfDay = v end)
+bindDropdown("Skybox Preset", function(v)
+    VisualsState.SkyPreset = v
+    applySkyPreset(v)
+end)
+
+-- Target HUD
+bindToggle("Target HUD", function(v)
+    VisualsState.TargetHUD = v
+    if not v and TargetHUDFrame then TargetHUDFrame.Visible = false end
+end)
+
+-- Whitelist System
+_G.AtomwareEvents = _G.AtomwareEvents or {}
+_G.AtomwareEvents["WhitelistPlayer"] = function(userId, state)
+    VisualsState.Whitelisted[userId] = state
+end
+_G.WhitelistPlayer = function(userId, state)
+    VisualsState.Whitelisted[userId] = state
+end
+
+-- Custom Crosshairs
+bindToggle("Enable Crosshair", function(v) VisualsState.CrosshairEnabled = v end)
+bindDropdown("Crosshair Style", function(v) VisualsState.CrosshairStyle = v end)
+bindSlider("Crosshair Size", function(v) VisualsState.CrosshairSize = v end)
+bindSlider("Crosshair Gap", function(v) VisualsState.CrosshairGap = v end)
+bindSlider("Crosshair Thickness", function(v) VisualsState.CrosshairThickness = v end)
+bindColorPicker("Crosshair Color", function(v) VisualsState.CrosshairColor = v end)
+bindToggle("Spinning Crosshair", function(v) VisualsState.CrosshairSpin = v end)
+bindSlider("Spin Speed", function(v) VisualsState.CrosshairSpinSpeed = v end)
+
+-- Mini-Radar
+bindToggle("Mini-Radar", function(v) VisualsState.RadarEnabled = v end)
+bindSlider("Radar Range", function(v) VisualsState.RadarRange = v end)
+bindSlider("Radar Size", function(v) VisualsState.RadarSize = v end)
+
+--//==================================================
 --// UNLOAD HANDLER
 --//==================================================
 
@@ -1728,6 +2492,28 @@ if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
             FOVCircleBoxFrame = nil
             FOVCircleBoxStroke = nil
         end
+        if TargetHUDFrame then
+            pcall(function() TargetHUDFrame:Destroy() end)
+            TargetHUDFrame = nil
+        end
+        if CrosshairHolder then
+            pcall(function() CrosshairHolder:Destroy() end)
+            CrosshairHolder = nil
+            table.clear(CrosshairLines)
+        end
+        if RadarHolder then
+            pcall(function() RadarHolder:Destroy() end)
+            RadarHolder = nil
+            table.clear(RadarBlips)
+        end
+        if customSky then
+            pcall(function() customSky:Destroy() end)
+            customSky = nil
+        end
+        pcall(function()
+            Lighting.ClockTime = origClockTime
+            Lighting.FogEnd = origFogEnd
+        end)
         if ScreenGuiContainer then
             pcall(function() ScreenGuiContainer:Destroy() end)
             ScreenGuiContainer = nil
@@ -1746,4 +2532,4 @@ if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
 end
 
 _G.AtomwareFeaturesLoaded = true
-print("Atomware Universal: Cross-Platform Visuals & Combat Engine Online")
+print("Atomware Universal: Cross-Platform Visuals, Combat & World Engine Online")

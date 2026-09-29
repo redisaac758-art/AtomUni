@@ -1335,10 +1335,12 @@ end
 --//==================================================
 
 local tabsData = {
-    { Name = "Visuals",  Icon = "👁️" },
-    { Name = "Combat",   Icon = "⚔️" },
-    { Name = "Player",   Icon = "👤" },
-    { Name = "Settings", Icon = "⚙️" },
+    { Name = "Visuals",   Icon = "👁️" },
+    { Name = "Combat",    Icon = "⚔️" },
+    { Name = "Movement",  Icon = "⚡" },
+    { Name = "Players",   Icon = "👥" },
+    { Name = "Crosshair", Icon = "🎯" },
+    { Name = "Settings",  Icon = "⚙️" },
 }
 
 for _, t in ipairs(tabsData) do
@@ -1424,6 +1426,12 @@ createToggle(bPlayerESP, "Health Bar", false)
 createToggle(bPlayerESP, "Tool ESP", false)
 createToggle(bPlayerESP, "Tracers", false)
 createDropdown(bPlayerESP, "Tracer Origin", { "Bottom", "Center", "Mouse" }, "Bottom")
+createToggle(bPlayerESP, "Health-Based Colors", false)
+createToggle(bPlayerESP, "Look Direction Rays", false)
+createSlider(bPlayerESP, "Ray Length", 3, 20, 7, 1, " studs")
+createColorPicker(bPlayerESP, "Ray Color", Color3.fromRGB(255, 100, 100))
+createToggle(bPlayerESP, "Skeleton / Bone ESP", false)
+createColorPicker(bPlayerESP, "Skeleton Color", Color3.fromRGB(220, 220, 255))
 createToggle(bPlayerESP, "Team Check", false)
 createColorPicker(bPlayerESP, "ESP Color", Color3.fromRGB(157, 48, 255))
 createColorPicker(bPlayerESP, "Team Color", Color3.fromRGB(42, 255, 157))
@@ -1445,6 +1453,17 @@ createSlider(bHat, "Hat Segments", 6, 24, 12, 1, "")
 createColorPicker(bHat, "Hat Color", Color3.fromRGB(205, 104, 255))
 createToggle(bHat, "Rotate Hat", true)
 
+local _, bWorld = createCard(rVisuals, "World & Ambience")
+createToggle(bWorld, "No Fog", false)
+createToggle(bWorld, "Custom Time", false)
+createSlider(bWorld, "Time of Day", 0, 24, 14, 1, " hrs")
+createDropdown(bWorld, "Skybox Preset", { "Default", "Purple Nebula", "Night Galaxy", "Synthwave" }, "Default")
+
+local _, bRadar = createCard(rVisuals, "Mini-Radar (2D HUD)")
+createToggle(bRadar, "Mini-Radar", false)
+createSlider(bRadar, "Radar Range", 50, 400, 150, 10, " studs")
+createSlider(bRadar, "Radar Size", 80, 200, 130, 5, " px")
+
 -- ---------------------------------------------------
 -- TAB 2: COMBAT
 -- ---------------------------------------------------
@@ -1459,6 +1478,7 @@ createDropdown(bAimbot, "Target Part", { "Head", "Torso", "HumanoidRootPart" }, 
 createSlider(bAimbot, "Smoothness", 1, 20, 5, 1, "")
 createToggle(bAimbot, "Wall Check", false)
 createToggle(bAimbot, "Aimbot Team Check", false)
+createToggle(bAimbot, "Target HUD", true)
 
 local _, bMobileAim = createCard(lCombat, "Mobile Aim Controls")
 createToggle(bMobileAim, "Show Aim Button", true, function(v)
@@ -1485,12 +1505,12 @@ createColorPicker(bHitbox, "Hitbox Color", Color3.fromRGB(157, 48, 255))
 createDropdown(bHitbox, "Hitbox Material", { "ForceField", "Neon", "Glass", "SmoothPlastic" }, "ForceField")
 
 -- ---------------------------------------------------
--- TAB 3: PLAYER
+-- TAB 3: MOVEMENT
 -- ---------------------------------------------------
-local lPlayer, rPlayer = getCols("Player")
+local lMove, rMove = getCols("Movement")
 
 -- LEFT COLUMN: MOVEMENT
-local _, bMove = createCard(lPlayer, "Movement")
+local _, bMove = createCard(lMove, "Movement")
 createToggle(bMove, "Speed Hack", false)
 createSlider(bMove, "WalkSpeed", 16, 250, 32, 1, " studs/s")
 createToggle(bMove, "Super Jump", false)
@@ -1499,7 +1519,7 @@ createToggle(bMove, "Infinite Jump", false)
 createToggle(bMove, "Bunny Hop", false)
 
 -- RIGHT COLUMN: FLIGHT & UTILITY
-local _, bFly = createCard(rPlayer, "Flight & Utility")
+local _, bFly = createCard(rMove, "Flight & Utility")
 createToggle(bFly, "Fly", false)
 createSlider(bFly, "Fly Speed", 10, 200, 50, 5, "")
 createToggle(bFly, "Noclip", false)
@@ -1509,7 +1529,166 @@ end)
 createSlider(bFly, "FreeCam Speed", 1, 50, 10, 1, "")
 
 -- ---------------------------------------------------
--- TAB 4: SETTINGS
+-- TAB 4: PLAYERS
+-- ---------------------------------------------------
+local lPlayers, rPlayers = getCols("Players")
+
+local _, bPlayersCard = createCard(lPlayers, "Session Players & Whitelist")
+
+local pNotice = Instance.new("TextLabel")
+pNotice.Size = UDim2.new(1, 0, 0, 24)
+pNotice.BackgroundTransparency = 1
+pNotice.Text = "Whitelisted players are hidden from ESP and excluded from Aimbot."
+pNotice.TextColor3 = THEME.TextMuted
+pNotice.TextSize = 12
+pNotice.Font = FONT
+pNotice.Parent = bPlayersCard
+
+local playerListContainer = Instance.new("Frame")
+playerListContainer.Name = "PlayerListContainer"
+playerListContainer.BackgroundTransparency = 1
+playerListContainer.Size = UDim2.new(1, 0, 0, 0)
+playerListContainer.AutomaticSize = Enum.AutomaticSize.Y
+playerListContainer.Parent = bPlayersCard
+
+local pListLayout = Instance.new("UIListLayout")
+pListLayout.Padding = UDim.new(0, 6)
+pListLayout.Parent = playerListContainer
+
+local whitelistedCacheMobile = {}
+
+local function refreshPlayersListMobile()
+    for _, child in ipairs(playerListContainer:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local pRow = Instance.new("Frame")
+            pRow.Name = "Player_" .. plr.UserId
+            pRow.Size = UDim2.new(1, 0, 0, 52)
+            pRow.BackgroundColor3 = THEME.Row
+            pRow.BorderSizePixel = 0
+            pRow.Parent = playerListContainer
+            corner(pRow, 6)
+            stroke(pRow, THEME.BorderDim, 1)
+
+            local pAvatar = Instance.new("ImageLabel")
+            pAvatar.Size = UDim2.fromOffset(38, 38)
+            pAvatar.Position = UDim2.fromOffset(7, 7)
+            pAvatar.BackgroundColor3 = THEME.Card
+            pAvatar.BorderSizePixel = 0
+            pAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(plr.UserId) .. "&w=100&h=100"
+            pAvatar.Parent = pRow
+            corner(pAvatar, 6)
+
+            local pName = Instance.new("TextLabel")
+            pName.Size = UDim2.new(1, -165, 0, 18)
+            pName.Position = UDim2.fromOffset(52, 7)
+            pName.BackgroundTransparency = 1
+            pName.Font = FONT_BOLD
+            pName.TextSize = 13
+            pName.TextColor3 = THEME.Text
+            pName.TextXAlignment = Enum.TextXAlignment.Left
+            pName.TextTruncate = Enum.TextTruncate.AtEnd
+            pName.Text = plr.DisplayName .. " (@" .. plr.Name .. ")"
+            pName.Parent = pRow
+
+            local pHealth = Instance.new("TextLabel")
+            pHealth.Size = UDim2.new(1, -165, 0, 16)
+            pHealth.Position = UDim2.fromOffset(52, 27)
+            pHealth.BackgroundTransparency = 1
+            pHealth.Font = FONT
+            pHealth.TextSize = 12
+            pHealth.TextColor3 = THEME.TextMuted
+            pHealth.TextXAlignment = Enum.TextXAlignment.Left
+            pHealth.Text = "HP: 100/100"
+            pHealth.Parent = pRow
+
+            local function updateHp()
+                if plr.Character then
+                    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        local hp = math.max(0, math.floor(hum.Health))
+                        local maxHp = math.floor(hum.MaxHealth)
+                        pHealth.Text = string.format("HP: %d/%d", hp, maxHp)
+                        if hp <= 0 then
+                            pHealth.TextColor3 = THEME.Red
+                        elseif hp < maxHp * 0.4 then
+                            pHealth.TextColor3 = THEME.Yellow
+                        else
+                            pHealth.TextColor3 = THEME.Green
+                        end
+                        return
+                    end
+                end
+                pHealth.Text = "HP: Unknown"
+                pHealth.TextColor3 = THEME.TextMuted
+            end
+            updateHp()
+
+            local wlBtn = Instance.new("TextButton")
+            wlBtn.Size = UDim2.fromOffset(102, 32)
+            wlBtn.AnchorPoint = Vector2.new(1, 0.5)
+            wlBtn.Position = UDim2.new(1, -8, 0.5, 0)
+            wlBtn.BackgroundColor3 = THEME.Card
+            wlBtn.Font = FONT_BOLD
+            wlBtn.TextSize = 12
+            wlBtn.AutoButtonColor = false
+            wlBtn.Parent = pRow
+            corner(wlBtn, 6)
+            local wlStroke = stroke(wlBtn, THEME.BorderDim, 1)
+
+            local function updateWlStyle()
+                local isWl = (whitelistedCacheMobile[plr.UserId] == true)
+                if isWl then
+                    wlBtn.Text = "★ Whitelisted"
+                    wlBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
+                    wlBtn.BackgroundColor3 = Color3.fromRGB(36, 30, 15)
+                    wlStroke.Color = Color3.fromRGB(160, 130, 40)
+                else
+                    wlBtn.Text = "Whitelist"
+                    wlBtn.TextColor3 = THEME.TextMuted
+                    wlBtn.BackgroundColor3 = THEME.Card
+                    wlStroke.Color = THEME.BorderDim
+                end
+            end
+            updateWlStyle()
+
+            trackConnection(wlBtn.MouseButton1Click:Connect(function()
+                whitelistedCacheMobile[plr.UserId] = not (whitelistedCacheMobile[plr.UserId] == true)
+                local newState = whitelistedCacheMobile[plr.UserId]
+                if _G.WhitelistPlayer then
+                    _G.WhitelistPlayer(plr.UserId, newState)
+                end
+                _G.FireEvent("WhitelistPlayer", plr.UserId, newState)
+                updateWlStyle()
+            end))
+        end
+    end
+end
+
+refreshPlayersListMobile()
+trackConnection(Players.PlayerAdded:Connect(function() task.wait(0.5) refreshPlayersListMobile() end))
+trackConnection(Players.PlayerRemoving:Connect(function() task.wait(0.1) refreshPlayersListMobile() end))
+
+-- ---------------------------------------------------
+-- TAB 5: CROSSHAIR
+-- ---------------------------------------------------
+local lCross, rCross = getCols("Crosshair")
+
+local _, bCross = createCard(lCross, "Custom Crosshair")
+createToggle(bCross, "Enable Crosshair", false)
+createDropdown(bCross, "Crosshair Style", { "Cross", "Dot", "T-Shape", "Circle" }, "Cross")
+createSlider(bCross, "Crosshair Size", 4, 40, 12, 1, " px")
+createSlider(bCross, "Crosshair Gap", 0, 20, 4, 1, " px")
+createSlider(bCross, "Crosshair Thickness", 1, 6, 2, 1, " px")
+createColorPicker(bCross, "Crosshair Color", Color3.fromRGB(0, 255, 180))
+createToggle(bCross, "Spinning Crosshair", false)
+createSlider(bCross, "Spin Speed", 1, 10, 2, 1, " x")
+
+-- ---------------------------------------------------
+-- TAB 6: SETTINGS
 -- ---------------------------------------------------
 local lSettings, rSettings = getCols("Settings")
 
