@@ -189,10 +189,16 @@ local function loadRemote(path)
     -- Fallback 3: GitHub remote repository testing (game:HttpGet)
     if not source and game and type(game.HttpGet) == "function" then
         local cleanPath = path:gsub("^" .. MODULE_ROOT, "")
-        local rawUrl = "https://raw.githubusercontent.com/redisaac758-art/AtomUni/main/" .. cleanPath
-        local ok, content = pcall(function() return game:HttpGet(rawUrl) end)
-        if ok and type(content) == "string" and #content > 0 then
-            source = content
+        local rawUrl = "https://raw.githubusercontent.com/redisaac758-art/AtomUni/main/" .. cleanPath .. "?v=" .. tostring(os.time())
+        for attempt = 1, 3 do
+            local ok, content = pcall(function() return game:HttpGet(rawUrl) end)
+            if ok and type(content) == "string" and #content > 0
+                and not content:find("429: Too Many Requests")
+                and not content:find("404: Not Found") then
+                source = content
+                break
+            end
+            task.wait(0.25)
         end
     end
 
@@ -201,7 +207,13 @@ local function loadRemote(path)
         return false
     end
 
-    local compileOk, chunk, compileErr = pcall(loadstring, source)
+    local compileFn = loadstring or (type(getgenv) == "function" and getgenv().loadstring)
+    if type(compileFn) ~= "function" then
+        warn("Atomware: loadstring is unavailable in this environment")
+        return false
+    end
+
+    local compileOk, chunk, compileErr = pcall(compileFn, source)
     if not compileOk or not chunk then
         warn("Atomware: failed to compile " .. tostring(path) .. ":", compileErr or chunk)
         return false
@@ -257,19 +269,14 @@ repeat
     end
 until _G.AtomwareUILoaded and _G.AtomwareEvents and _G.OnToggle
 
--- 4. Load Features Engine (if present in bundle)
+-- 4. Load Features Engine
 if not _G.AtomwareFeaturesLoaded then
     local featuresPath = MODULE_ROOT .. "features.lua"
-    if SCRIPT_SOURCES[featuresPath] then
-        if not loadRemote(featuresPath) then
-            warn("Atomware: feature backend could not be loaded; cleaning up startup.")
-            if _G.AtomwareUnload then pcall(_G.AtomwareUnload) end
-            return
-        end
-    else
-        -- No features.lua yet in this bundle (expected for initial universal setup)
-        _G.AtomwareFeaturesLoaded = true
+    local loaded = loadRemote(featuresPath)
+    if not loaded then
+        warn("Atomware: features.lua could not be loaded; continuing.")
     end
+    _G.AtomwareFeaturesLoaded = true
 end
 
 -- 5. Verify everything is online (timeout after 15s)

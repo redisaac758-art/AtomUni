@@ -91,16 +91,17 @@ _G.OnKeybind = function(name, callback)
 end
 
 _G.FireEvent = function(name, ...)
-    if _G.AtomwareConfig and select("#", ...) == 1 then
-        _G.AtomwareConfig:Store(name, (...))
+    if _G.AtomwareConfig and type(_G.AtomwareConfig.Store) == "function" and select("#", ...) == 1 then
+        pcall(function(...) _G.AtomwareConfig:Store(name, (...)) end, ...)
     end
-    local callback = _G.AtomwareEvents[name]
-    if callback then
+    local callback = _G.AtomwareEvents and _G.AtomwareEvents[name]
+    if type(callback) == "function" then
         local args = { ... }
         local count = select("#", ...)
         dispatchEvent(name, callback, args, count)
         return
     end
+    _G.AtomwarePendingEvents = _G.AtomwarePendingEvents or {}
     local args = { ... }
     args.n = select("#", ...)
     _G.AtomwarePendingEvents[name] = args
@@ -182,11 +183,22 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.DisplayOrder = 100
 
-local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
-if not playerGui then error("Atomware: PlayerGui was unavailable after 10 seconds") end
-local existingGui = playerGui:FindFirstChild("AtomwareUI")
+local function getGuiParent()
+    if type(gethui) == "function" then
+        local ok, h = pcall(gethui)
+        if ok and h then return h end
+    end
+    if LocalPlayer then
+        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
+        if playerGui then return playerGui end
+    end
+    return CoreGui
+end
+
+local guiParent = getGuiParent()
+local existingGui = guiParent and guiParent:FindFirstChild("AtomwareUI")
 if existingGui then existingGui:Destroy() end
-ScreenGui.Parent = playerGui
+ScreenGui.Parent = guiParent
 if _G.AtomwareConfig then _G.AtomwareConfig:AttachUI(ScreenGui, "PC") end
 
 --//==================================================

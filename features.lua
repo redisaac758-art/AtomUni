@@ -1,8 +1,8 @@
 --[[
     features.lua
     Universal Visuals & Performance Features Engine for Atomware (Universal Script)
-    Provides Universal Player ESP, Material Chams (t1r4 adaptation), and Chinese Hat ESP.
-    Engineered with dual-pipeline rendering (Native Drawing API + Mobile ScreenGui Fallback).
+    Cross-platform visual features: Player ESP (BillboardGui), Material Chams (t1r4), Chinese Hat, and Tracers.
+    Engineered with 100% native Roblox engine rendering for full iPad / Mobile / PC compatibility.
 ]]
 
 local Players = game:GetService("Players")
@@ -12,16 +12,24 @@ local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera or Workspace:WaitForChild("Camera", 10)
-if not Camera then error("Atomware: CurrentCamera was unavailable") end
+while not LocalPlayer do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
+end
 
-trackConnection = function(conn)
-    if _G.AtomwareConfig then return _G.AtomwareConfig:TrackConnection(conn) end
+local Camera = Workspace.CurrentCamera or Workspace:WaitForChild("Camera", 10)
+
+local function trackConnection(conn)
+    if _G.AtomwareConfig and type(_G.AtomwareConfig.TrackConnection) == "function" then
+        return _G.AtomwareConfig:TrackConnection(conn)
+    end
     return conn
 end
 
-trackTask = function(t)
-    if _G.AtomwareConfig then return _G.AtomwareConfig:TrackTask(t) end
+local function trackTask(t)
+    if _G.AtomwareConfig and type(_G.AtomwareConfig.TrackTask) == "function" then
+        return _G.AtomwareConfig:TrackTask(t)
+    end
     return t
 end
 
@@ -31,156 +39,49 @@ trackConnection(Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(func
 end))
 
 --//==================================================
---// DUAL RENDERING PIPELINE (PC DRAWING + MOBILE SCREENGUI FALLBACK)
+--// GUI PARENT RESOLVER (CROSS-PLATFORM IPAD / PC)
 --//==================================================
 
-local hasNativeDrawing = pcall(function()
-    local test = Drawing.new("Line")
-    test.Visible = false
-    test:Remove()
+local function getGuiParent()
+    if type(gethui) == "function" then
+        local ok, h = pcall(gethui)
+        if ok and h then return h end
+    end
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
+    if playerGui then return playerGui end
+    return CoreGui
+end
+
+-- ScreenGui for 2D screen elements (Tracers, ScreenGui fallback lines)
+local ScreenGuiContainer = nil
+pcall(function()
+    local parent = getGuiParent()
+    local existing = parent:FindFirstChild("AtomwareScreenVisuals")
+    if existing then existing:Destroy() end
+
+    ScreenGuiContainer = Instance.new("ScreenGui")
+    ScreenGuiContainer.Name = "AtomwareScreenVisuals"
+    ScreenGuiContainer.ResetOnSpawn = false
+    ScreenGuiContainer.IgnoreGuiInset = true
+    ScreenGuiContainer.DisplayOrder = 9999
+    ScreenGuiContainer.Parent = parent
+    if _G.AtomwareCleanup and type(_G.AtomwareCleanup.TrackInstance) == "function" then
+        _G.AtomwareCleanup:TrackInstance(ScreenGuiContainer)
+    end
 end)
 
-local FallbackGui = nil
-if not hasNativeDrawing then
-    pcall(function()
-        local parent = (type(gethui) == "function" and gethui()) or LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        if parent then
-            local existing = parent:FindFirstChild("AtomwareFallbackESP")
-            if existing then existing:Destroy() end
-
-            FallbackGui = Instance.new("ScreenGui")
-            FallbackGui.Name = "AtomwareFallbackESP"
-            FallbackGui.ResetOnSpawn = false
-            FallbackGui.IgnoreGuiInset = true
-            FallbackGui.DisplayOrder = 9999
-            FallbackGui.Parent = parent
-            if _G.AtomwareCleanup and _G.AtomwareCleanup.TrackInstance then
-                _G.AtomwareCleanup:TrackInstance(FallbackGui)
-            end
-        end
-    end)
-end
-
-local function createRenderObject(kind)
-    if hasNativeDrawing then
-        local d = Drawing.new(kind)
-        if _G.AtomwareCleanup and _G.AtomwareCleanup.TrackDrawing then
-            _G.AtomwareCleanup:TrackDrawing(d)
-        end
-        return d
-    end
-
-    -- Fallback ScreenGui object simulation for mobile/unsupported runtimes
-    local obj = {
-        Visible = false,
-        Color = Color3.fromRGB(255, 255, 255),
-        Transparency = 1,
-        Thickness = 1,
-        From = Vector2.zero,
-        To = Vector2.zero,
-        Size = Vector2.zero,
-        Position = Vector2.zero,
-        Text = "",
-        Center = false,
-        Outline = false,
-        OutlineColor = Color3.fromRGB(0, 0, 0),
-        ZIndex = 1,
-    }
-
-    local frame = nil
-    if FallbackGui then
-        if kind == "Line" then
-            frame = Instance.new("Frame")
-            frame.AnchorPoint = Vector2.new(0.5, 0.5)
-            frame.BorderSizePixel = 0
-            frame.Parent = FallbackGui
-        elseif kind == "Square" then
-            frame = Instance.new("Frame")
-            frame.BackgroundTransparency = 1
-            frame.BorderSizePixel = 0
-            frame.Parent = FallbackGui
-            local stroke = Instance.new("UIStroke")
-            stroke.Color = obj.Color
-            stroke.Thickness = obj.Thickness
-            stroke.Parent = frame
-            obj._stroke = stroke
-        elseif kind == "Text" then
-            local label = Instance.new("TextLabel")
-            label.BackgroundTransparency = 1
-            label.Font = Enum.Font.GothamMedium
-            label.TextSize = 12
-            label.Parent = FallbackGui
-            frame = label
-        end
-        if frame then
-            frame.Visible = false
-            obj._frame = frame
+-- Check if native Drawing API is available and functional
+local hasNativeDrawing = false
+pcall(function()
+    if type(Drawing) == "table" and type(Drawing.new) == "function" then
+        local test = Drawing.new("Line")
+        if test then
+            test.Visible = false
+            test:Remove()
+            hasNativeDrawing = true
         end
     end
-
-    local mt = {
-        __newindex = function(t, k, v)
-            rawset(t, k, v)
-            if not frame or not frame.Parent then return end
-
-            if k == "Visible" then
-                frame.Visible = v
-            elseif k == "Color" then
-                if kind == "Text" then
-                    frame.TextColor3 = v
-                elseif kind == "Square" and t._stroke then
-                    t._stroke.Color = v
-                else
-                    frame.BackgroundColor3 = v
-                end
-            elseif k == "Thickness" then
-                if kind == "Square" and t._stroke then
-                    t._stroke.Thickness = v
-                elseif kind == "Line" then
-                    -- Size updated on From/To update
-                end
-            elseif k == "From" or k == "To" then
-                if kind == "Line" then
-                    local from = t.From
-                    local to = t.To
-                    local dist = (to - from).Magnitude
-                    local mid = (from + to) / 2
-                    local angle = math.deg(math.atan2(to.Y - from.Y, to.X - from.X))
-                    frame.Size = UDim2.fromOffset(dist, t.Thickness or 1)
-                    frame.Position = UDim2.fromOffset(mid.X, mid.Y)
-                    frame.Rotation = angle
-                end
-            elseif k == "Position" then
-                if kind == "Square" or kind == "Text" then
-                    frame.Position = UDim2.fromOffset(v.X, v.Y)
-                end
-            elseif k == "Size" then
-                if kind == "Square" then
-                    frame.Size = UDim2.fromOffset(v.X, v.Y)
-                elseif kind == "Text" and type(v) == "number" then
-                    frame.TextSize = v
-                end
-            elseif k == "Text" and kind == "Text" then
-                frame.Text = tostring(v)
-            elseif k == "Center" and kind == "Text" then
-                frame.TextXAlignment = v and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
-            end
-        end
-    }
-
-    function obj:Remove()
-        if frame then frame:Destroy() end
-        table.clear(obj)
-    end
-
-    return setmetatable(obj, mt)
-end
-
---//==================================================
---// EVENT HOOKS WAITER
---//==================================================
-
-repeat task.wait() until _G.OnToggle and _G.OnSlider and _G.OnDropdown and _G.OnColorPicker
+end)
 
 --//==================================================
 --// CONFIGURATION STATE
@@ -351,7 +252,7 @@ local function refreshAllChams()
 end
 
 --//==================================================
---// RIG & BOUNDING BOX CALCULATION
+--// RIG & TOOL DETECTION
 --//==================================================
 
 local function getCharacterRigType(character)
@@ -370,182 +271,257 @@ local function getCharacterTool(character)
     return tool and tool.Name or nil
 end
 
-local function getBoundingBoxScreen(character)
-    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
-    local head = character:FindFirstChild("Head")
-    if not root or not head then return nil end
-
-    local rig = getCharacterRigType(character)
-    local topOffset = (rig == "R15") and 1.6 or 1.4
-    local bottomOffset = (rig == "R15") and 3.2 or 3.0
-
-    local topWorld = head.Position + Vector3.new(0, topOffset, 0)
-    local bottomWorld = root.Position - Vector3.new(0, bottomOffset, 0)
-
-    local topScreen, topVisible = Camera:WorldToViewportPoint(topWorld)
-    local bottomScreen, bottomVisible = Camera:WorldToViewportPoint(bottomWorld)
-
-    if not topVisible and not bottomVisible then return nil end
-
-    local height = math.abs(bottomScreen.Y - topScreen.Y)
-    local width = math.max(height * 0.6, 12)
-    local x = topScreen.X - (width / 2)
-    local y = topScreen.Y
-
-    return {
-        Position = Vector2.new(math.floor(x), math.floor(y)),
-        Size = Vector2.new(math.floor(width), math.floor(height)),
-        Top = topScreen,
-        Bottom = bottomScreen,
-        Center = Vector2.new(math.floor(topScreen.X), math.floor(y + height / 2)),
-    }
+local function getCharacterRoot(character)
+    return character:FindFirstChild("HumanoidRootPart")
+        or character:FindFirstChild("Torso")
+        or character:FindFirstChild("UpperTorso")
+        or character.PrimaryPart
 end
 
 --//==================================================
---// PLAYER ESP HOLDER & DRAWINGS CACHE
+--// NATIVE BILLBOARD ESP ENGINE (IPAD, MOBILE & PC)
 --//==================================================
 
 local ESPHolders = {}
 
-local function createESPEntry(player)
-    local entry = {
-        Player = player,
-        -- Box drawings (Main box or 8 corner lines)
-        Box = createRenderObject("Square"),
-        BoxOutline = createRenderObject("Square"),
-        Corners = {},
-        CornerOutlines = {},
-        -- Text elements
-        Name = createRenderObject("Text"),
-        Distance = createRenderObject("Text"),
-        Tool = createRenderObject("Text"),
-        -- Health bar
-        HealthBar = createRenderObject("Line"),
-        HealthBarOutline = createRenderObject("Line"),
-        -- Tracers
-        Tracer = createRenderObject("Line"),
-        -- Chinese Hat lines (base ring + apex ribs)
-        HatLines = {},
+local function createPlayerESP(player)
+    local parent = getGuiParent()
+
+    local bbg = Instance.new("BillboardGui")
+    bbg.Name = "AtomwarePlayerESP_" .. player.Name
+    bbg.AlwaysOnTop = true
+    bbg.ResetOnSpawn = false
+    bbg.ClipsDescendants = false
+    bbg.Size = UDim2.new(4.2, 0, 5.6, 0)
+    bbg.StudsOffset = Vector3.new(0, 0, 0)
+    bbg.Enabled = false
+    bbg.Parent = parent
+
+    -- 2D Box Frame
+    local boxFrame = Instance.new("Frame")
+    boxFrame.Name = "BoxFrame"
+    boxFrame.BackgroundTransparency = 1
+    boxFrame.Size = UDim2.fromScale(1, 1)
+    boxFrame.BorderSizePixel = 0
+    boxFrame.Parent = bbg
+
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Name = "BoxStroke"
+    boxStroke.Color = VisualsState.ESPColor
+    boxStroke.Thickness = 1.5
+    boxStroke.LineJoinMode = Enum.LineJoinMode.Miter
+    boxStroke.Parent = boxFrame
+
+    -- Corner Box Container (8 lines)
+    local cornerContainer = Instance.new("Frame")
+    cornerContainer.Name = "CornerContainer"
+    cornerContainer.BackgroundTransparency = 1
+    cornerContainer.Size = UDim2.fromScale(1, 1)
+    cornerContainer.Visible = false
+    cornerContainer.Parent = bbg
+
+    local cornerBrackets = {}
+    local cornerPositions = {
+        { UDim2.new(0, 0, 0, 0), UDim2.new(0.25, 0, 0, 1.5) },       -- TL Horizontal
+        { UDim2.new(0, 0, 0, 0), UDim2.new(0, 1.5, 0.25, 0) },       -- TL Vertical
+        { UDim2.new(0.75, 0, 0, 0), UDim2.new(0.25, 0, 0, 1.5) },    -- TR Horizontal
+        { UDim2.new(1, -1.5, 0, 0), UDim2.new(0, 1.5, 0.25, 0) },    -- TR Vertical
+        { UDim2.new(0, 0, 1, -1.5), UDim2.new(0.25, 0, 0, 1.5) },    -- BL Horizontal
+        { UDim2.new(0, 0, 0.75, 0), UDim2.new(0, 1.5, 0.25, 0) },    -- BL Vertical
+        { UDim2.new(0.75, 0, 1, -1.5), UDim2.new(0.25, 0, 0, 1.5) }, -- BR Horizontal
+        { UDim2.new(1, -1.5, 0.75, 0), UDim2.new(0, 1.5, 0.25, 0) }, -- BR Vertical
     }
 
-    -- 8 corner lines + 8 outlines
-    for i = 1, 8 do
-        entry.Corners[i] = createRenderObject("Line")
-        entry.CornerOutlines[i] = createRenderObject("Line")
+    for i, p in ipairs(cornerPositions) do
+        local line = Instance.new("Frame")
+        line.Position = p[1]
+        line.Size = p[2]
+        line.BackgroundColor3 = VisualsState.ESPColor
+        line.BorderSizePixel = 0
+        line.Parent = cornerContainer
+        table.insert(cornerBrackets, line)
     end
 
-    -- Chinese hat lines pool (up to 32 lines for ring + ribs)
-    for i = 1, 48 do
-        entry.HatLines[i] = createRenderObject("Line")
+    -- Health Bar (Left)
+    local healthBarBg = Instance.new("Frame")
+    healthBarBg.Name = "HealthBarBg"
+    healthBarBg.AnchorPoint = Vector2.new(1, 0)
+    healthBarBg.Position = UDim2.new(0, -5, 0, 0)
+    healthBarBg.Size = UDim2.new(0, 3, 1, 0)
+    healthBarBg.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
+    healthBarBg.BorderSizePixel = 0
+    healthBarBg.Visible = false
+    healthBarBg.Parent = bbg
+
+    local healthBarFill = Instance.new("Frame")
+    healthBarFill.Name = "HealthBarFill"
+    healthBarFill.AnchorPoint = Vector2.new(0, 1)
+    healthBarFill.Position = UDim2.new(0, 0, 1, 0)
+    healthBarFill.Size = UDim2.new(1, 0, 1, 0)
+    healthBarFill.BackgroundColor3 = Color3.fromRGB(42, 255, 157)
+    healthBarFill.BorderSizePixel = 0
+    healthBarFill.Parent = healthBarBg
+
+    -- Name & Distance Label (Top)
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.AnchorPoint = Vector2.new(0.5, 1)
+    nameLabel.Position = UDim2.new(0.5, 0, 0, -5)
+    nameLabel.Size = UDim2.new(2, 0, 0, 16)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Font = Enum.Font.GothamMedium
+    nameLabel.TextSize = 12
+    nameLabel.TextColor3 = Color3.fromRGB(245, 241, 255)
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+    nameLabel.Visible = false
+    nameLabel.Parent = bbg
+
+    local nameStroke = Instance.new("UIStroke")
+    nameStroke.Color = Color3.fromRGB(10, 7, 20)
+    nameStroke.Thickness = 1
+    nameStroke.Parent = nameLabel
+
+    -- Tool Label (Bottom)
+    local toolLabel = Instance.new("TextLabel")
+    toolLabel.Name = "ToolLabel"
+    toolLabel.AnchorPoint = Vector2.new(0.5, 0)
+    toolLabel.Position = UDim2.new(0.5, 0, 1, 5)
+    toolLabel.Size = UDim2.new(2, 0, 0, 14)
+    toolLabel.BackgroundTransparency = 1
+    toolLabel.Font = Enum.Font.GothamMedium
+    toolLabel.TextSize = 11
+    toolLabel.TextColor3 = Color3.fromRGB(205, 104, 255)
+    toolLabel.TextXAlignment = Enum.TextXAlignment.Center
+    toolLabel.Visible = false
+    toolLabel.Parent = bbg
+
+    local toolStroke = Instance.new("UIStroke")
+    toolStroke.Color = Color3.fromRGB(10, 7, 20)
+    toolStroke.Thickness = 1
+    toolStroke.Parent = toolLabel
+
+    -- Tracer line (ScreenGui Frame fallback)
+    local tracerFrame = nil
+    if ScreenGuiContainer then
+        tracerFrame = Instance.new("Frame")
+        tracerFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        tracerFrame.BorderSizePixel = 0
+        tracerFrame.BackgroundColor3 = VisualsState.ESPColor
+        tracerFrame.Visible = false
+        tracerFrame.Parent = ScreenGuiContainer
     end
 
-    return entry
+    return {
+        Player = player,
+        Billboard = bbg,
+        BoxFrame = boxFrame,
+        BoxStroke = boxStroke,
+        CornerContainer = cornerContainer,
+        CornerBrackets = cornerBrackets,
+        HealthBarBg = healthBarBg,
+        HealthBarFill = healthBarFill,
+        NameLabel = nameLabel,
+        ToolLabel = toolLabel,
+        TracerFrame = tracerFrame,
+        ChineseHatPart = nil,
+        ChineseHatWeld = nil,
+    }
 end
 
-local function removeESPEntry(entry)
+local function removePlayerESP(entry)
     if not entry then return end
-    entry.Box:Remove()
-    entry.BoxOutline:Remove()
-    for _, c in ipairs(entry.Corners) do c:Remove() end
-    for _, co in ipairs(entry.CornerOutlines) do co:Remove() end
-    entry.Name:Remove()
-    entry.Distance:Remove()
-    entry.Tool:Remove()
-    entry.HealthBar:Remove()
-    entry.HealthBarOutline:Remove()
-    entry.Tracer:Remove()
-    for _, hl in ipairs(entry.HatLines) do hl:Remove() end
-end
-
-local function hideESPEntry(entry)
-    entry.Box.Visible = false
-    entry.BoxOutline.Visible = false
-    for i = 1, 8 do
-        entry.Corners[i].Visible = false
-        entry.CornerOutlines[i].Visible = false
+    if entry.Billboard then
+        pcall(function() entry.Billboard:Destroy() end)
     end
-    entry.Name.Visible = false
-    entry.Distance.Visible = false
-    entry.Tool.Visible = false
-    entry.HealthBar.Visible = false
-    entry.HealthBarOutline.Visible = false
-    entry.Tracer.Visible = false
-    for _, hl in ipairs(entry.HatLines) do hl.Visible = false end
+    if entry.TracerFrame then
+        pcall(function() entry.TracerFrame:Destroy() end)
+    end
+    if entry.ChineseHatPart then
+        pcall(function() entry.ChineseHatPart:Destroy() end)
+    end
+    table.clear(entry)
 end
 
 --//==================================================
---// CHINESE HAT WIREFRAME RENDERER
+--// CHINESE HAT (NATIVE 3D COSMETIC CONE ON HEAD)
 --//==================================================
 
-local function renderChineseHat(entry, character, isLocal)
-    if not VisualsState.HatEnabled then return end
-    if isLocal and not VisualsState.HatLocalPlayer then return end
-    if not isLocal and not VisualsState.HatOthers then return end
+local function updateChineseHat(entry, char, isLocal)
+    if not VisualsState.HatEnabled then
+        if entry.ChineseHatPart then
+            pcall(function() entry.ChineseHatPart:Destroy() end)
+            entry.ChineseHatPart = nil
+            entry.ChineseHatWeld = nil
+        end
+        return
+    end
 
-    local head = character:FindFirstChild("Head")
+    if isLocal and not VisualsState.HatLocalPlayer then
+        if entry.ChineseHatPart then
+            pcall(function() entry.ChineseHatPart:Destroy() end)
+            entry.ChineseHatPart = nil
+        end
+        return
+    end
+
+    if not isLocal and not VisualsState.HatOthers then
+        if entry.ChineseHatPart then
+            pcall(function() entry.ChineseHatPart:Destroy() end)
+            entry.ChineseHatPart = nil
+        end
+        return
+    end
+
+    local head = char:FindFirstChild("Head")
     if not head then return end
 
-    local radius = VisualsState.HatRadius
-    local segments = math.clamp(math.floor(VisualsState.HatSegments), 6, 24)
-    local hatColor = VisualsState.HatColor
-    local rotAngle = VisualsState.HatRotate and (tick() * 2 % (math.pi * 2)) or 0
+    if not entry.ChineseHatPart or not entry.ChineseHatPart.Parent or not entry.ChineseHatWeld or not entry.ChineseHatWeld.Parent then
+        if entry.ChineseHatPart then pcall(function() entry.ChineseHatPart:Destroy() end) end
 
-    local baseCenter = head.Position + Vector3.new(0, 0.7, 0)
-    local apexWorld = baseCenter + Vector3.new(0, 0.9, 0)
+        local hat = Instance.new("Part")
+        hat.Name = "AtomwareChineseHat"
+        hat.CanCollide = false
+        hat.CanTouch = false
+        hat.CanQuery = false
+        hat.Massless = true
+        hat.CastShadow = false
+        hat.Material = Enum.Material.ForceField
+        hat.Color = VisualsState.HatColor
+        hat.Transparency = 0.35
+        hat.Size = Vector3.new(0.2, 0.2, 0.2)
 
-    local apexScreen, apexVisible = Camera:WorldToViewportPoint(apexWorld)
-    if not apexVisible then return end
-    local apexPos = Vector2.new(apexScreen.X, apexScreen.Y)
+        local mesh = Instance.new("SpecialMesh")
+        mesh.MeshType = Enum.MeshType.FileMesh
+        mesh.MeshId = "rbxassetid://1778999" -- Classic Asian Rice / Cone Hat mesh
+        local scale = VisualsState.HatRadius * 1.4
+        mesh.Scale = Vector3.new(scale, scale * 0.6, scale)
+        mesh.Parent = hat
 
-    -- Calculate screen points for base ring
-    local ringPoints = {}
-    local allVisible = true
+        local weld = Instance.new("Weld")
+        weld.Part0 = head
+        weld.Part1 = hat
+        weld.C0 = CFrame.new(0, 0.72, 0)
+        weld.Parent = hat
 
-    for i = 1, segments do
-        local angle = rotAngle + ((i - 1) / segments) * math.pi * 2
-        local ptWorld = baseCenter + Vector3.new(math.cos(angle) * radius, -0.35, math.sin(angle) * radius)
-        local ptScreen, ptVis = Camera:WorldToViewportPoint(ptWorld)
-        if not ptVis then
-            allVisible = false
-            break
+        hat.Parent = char
+        entry.ChineseHatPart = hat
+        entry.ChineseHatWeld = weld
+    else
+        entry.ChineseHatPart.Color = VisualsState.HatColor
+        local scale = VisualsState.HatRadius * 1.4
+        local mesh = entry.ChineseHatPart:FindFirstChildOfClass("SpecialMesh")
+        if mesh then
+            mesh.Scale = Vector3.new(scale, scale * 0.6, scale)
         end
-        table.insert(ringPoints, Vector2.new(ptScreen.X, ptScreen.Y))
-    end
-
-    if not allVisible or #ringPoints < segments then return end
-
-    local lineIndex = 1
-
-    -- Draw base ring (connecting adjacent points)
-    for i = 1, segments do
-        local nextIndex = (i % segments) + 1
-        local line = entry.HatLines[lineIndex]
-        if line then
-            line.Visible = true
-            line.Color = hatColor
-            line.Thickness = 1.2
-            line.From = ringPoints[i]
-            line.To = ringPoints[nextIndex]
-            lineIndex = lineIndex + 1
-        end
-    end
-
-    -- Draw ribs from apex to each ring point
-    for i = 1, segments do
-        local line = entry.HatLines[lineIndex]
-        if line then
-            line.Visible = true
-            line.Color = hatColor
-            line.Thickness = 1.2
-            line.From = apexPos
-            line.To = ringPoints[i]
-            lineIndex = lineIndex + 1
+        if VisualsState.HatRotate and entry.ChineseHatWeld then
+            local rotAngle = tick() * 90 % 360
+            entry.ChineseHatWeld.C0 = CFrame.new(0, 0.72, 0) * CFrame.Angles(0, math.rad(rotAngle), 0)
         end
     end
 end
 
 --//==================================================
---// MAIN RENDER LOOP (ESP + CHAMS + HAT)
+--// MAIN RENDER LOOP (PER FRAME UPDATE)
 --//==================================================
 
 local function getTracerOrigin()
@@ -559,27 +535,40 @@ local function getTracerOrigin()
     return Vector2.new(vp.X / 2, vp.Y)
 end
 
-local function updatePlayerESP(entry)
+local function updatePlayer(entry)
     local plr = entry.Player
     local isLocal = (plr == LocalPlayer)
-
-    hideESPEntry(entry)
-
     local char = plr.Character
-    if not char then return end
+
+    if not char then
+        entry.Billboard.Enabled = false
+        if entry.TracerFrame then entry.TracerFrame.Visible = false end
+        return
+    end
 
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health <= 0 then return end
+    local root = getCharacterRoot(char)
 
-    -- Hat for Local Player
+    if not hum or hum.Health <= 0 or not root then
+        entry.Billboard.Enabled = false
+        if entry.TracerFrame then entry.TracerFrame.Visible = false end
+        return
+    end
+
+    -- Chinese Hat Update
+    updateChineseHat(entry, char, isLocal)
+
     if isLocal then
-        renderChineseHat(entry, char, true)
+        entry.Billboard.Enabled = false
+        if entry.TracerFrame then entry.TracerFrame.Visible = false end
         return
     end
 
     -- Team Check
-    local isTeammate = (VisualsState.TeamCheck or VisualsState.ChamsTeamCheck) and plr.Team and LocalPlayer.Team and plr.Team == LocalPlayer.Team
+    local isTeammate = plr.Team and LocalPlayer.Team and plr.Team == LocalPlayer.Team
     if VisualsState.TeamCheck and isTeammate then
+        entry.Billboard.Enabled = false
+        if entry.TracerFrame then entry.TracerFrame.Visible = false end
         return
     end
 
@@ -588,156 +577,120 @@ local function updatePlayerESP(entry)
         applyChams(plr)
     end
 
-    -- Hat for other players
-    renderChineseHat(entry, char, false)
+    if not VisualsState.ESPEnabled then
+        entry.Billboard.Enabled = false
+        if entry.TracerFrame then entry.TracerFrame.Visible = false end
+        return
+    end
 
-    if not VisualsState.ESPEnabled then return end
+    -- Attach Adornee
+    entry.Billboard.Adornee = root
+    entry.Billboard.Enabled = true
 
-    local bbox = getBoundingBoxScreen(char)
-    if not bbox then return end
+    local espColor = (isTeammate and VisualsState.TeamColor) or VisualsState.ESPColor
 
-    local espColor = isTeammate and VisualsState.TeamColor or VisualsState.ESPColor
-    local pos = bbox.Position
-    local size = bbox.Size
-    local dist = math.floor((char:GetPivot().Position - Camera.CFrame.Position).Magnitude)
+    -- Rig Detection sizing
+    local rig = getCharacterRigType(char)
+    if rig == "R15" then
+        entry.Billboard.Size = UDim2.new(4.4, 0, 6.0, 0)
+    else
+        entry.Billboard.Size = UDim2.new(4.0, 0, 5.2, 0)
+    end
 
     -- 1. Box ESP
     if VisualsState.BoxESP then
         if VisualsState.BoxStyle == "Corner Box" then
-            local cornerLen = math.clamp(math.floor(size.X * 0.25), 4, 18)
-            local x1, y1 = pos.X, pos.Y
-            local x2, y2 = pos.X + size.X, pos.Y + size.Y
-
-            local lines = {
-                -- Top Left
-                { Vector2.new(x1, y1), Vector2.new(x1 + cornerLen, y1) },
-                { Vector2.new(x1, y1), Vector2.new(x1, y1 + cornerLen) },
-                -- Top Right
-                { Vector2.new(x2, y1), Vector2.new(x2 - cornerLen, y1) },
-                { Vector2.new(x2, y1), Vector2.new(x2, y1 + cornerLen) },
-                -- Bottom Left
-                { Vector2.new(x1, y2), Vector2.new(x1 + cornerLen, y2) },
-                { Vector2.new(x1, y2), Vector2.new(x1, y2 - cornerLen) },
-                -- Bottom Right
-                { Vector2.new(x2, y2), Vector2.new(x2 - cornerLen, y2) },
-                { Vector2.new(x2, y2), Vector2.new(x2, y2 - cornerLen) },
-            }
-
-            for i = 1, 8 do
-                local c = entry.Corners[i]
-                local co = entry.CornerOutlines[i]
-                if lines[i] then
-                    co.Visible = true
-                    co.Color = Color3.fromRGB(0, 0, 0)
-                    co.Thickness = 2.5
-                    co.From = lines[i][1]
-                    co.To = lines[i][2]
-
-                    c.Visible = true
-                    c.Color = espColor
-                    c.Thickness = 1
-                    c.From = lines[i][1]
-                    c.To = lines[i][2]
-                end
+            entry.BoxFrame.Visible = false
+            entry.CornerContainer.Visible = true
+            for _, br in ipairs(entry.CornerBrackets) do
+                br.BackgroundColor3 = espColor
             end
         else
-            -- 2D Box with 1px black outline for contrast
-            local bo = entry.BoxOutline
-            bo.Visible = true
-            bo.Color = Color3.fromRGB(0, 0, 0)
-            bo.Thickness = 2.5
-            bo.Position = pos - Vector2.new(1, 1)
-            bo.Size = size + Vector2.new(2, 2)
-
-            local b = entry.Box
-            b.Visible = true
-            b.Color = espColor
-            b.Thickness = 1
-            b.Position = pos
-            b.Size = size
+            entry.CornerContainer.Visible = false
+            entry.BoxFrame.Visible = true
+            entry.BoxStroke.Color = espColor
         end
+    else
+        entry.BoxFrame.Visible = false
+        entry.CornerContainer.Visible = false
     end
 
-    -- 2. Health Bar (Left of Box)
+    -- 2. Health Bar
     if VisualsState.HealthBar then
         local hpPct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-        local barHeight = math.floor(size.Y * hpPct)
-        local barX = pos.X - 6
-        local barY = pos.Y + size.Y
-
-        local hbo = entry.HealthBarOutline
-        hbo.Visible = true
-        hbo.Color = Color3.fromRGB(0, 0, 0)
-        hbo.Thickness = 3
-        hbo.From = Vector2.new(barX, pos.Y + size.Y)
-        hbo.To = Vector2.new(barX, pos.Y)
-
-        local hb = entry.HealthBar
-        hb.Visible = true
-        hb.Color = Color3.fromHSV(hpPct * 0.33, 0.9, 1) -- Smooth Red to Green
-        hb.Thickness = 1.5
-        hb.From = Vector2.new(barX, barY)
-        hb.To = Vector2.new(barX, barY - barHeight)
+        entry.HealthBarBg.Visible = true
+        entry.HealthBarFill.Size = UDim2.new(1, 0, hpPct, 0)
+        entry.HealthBarFill.BackgroundColor3 = Color3.fromHSV(hpPct * 0.33, 0.9, 1)
+    else
+        entry.HealthBarBg.Visible = false
     end
 
-    -- 3. Name & Distance ESP (Top of Box)
+    -- 3. Name & Distance ESP
     if VisualsState.NameESP or VisualsState.DistanceESP then
+        local dist = math.floor((root.Position - Camera.CFrame.Position).Magnitude)
         local textStr = ""
         if VisualsState.NameESP then textStr = plr.DisplayName or plr.Name end
         if VisualsState.DistanceESP then
             textStr = textStr ~= "" and (textStr .. " [" .. dist .. "m]") or ("[" .. dist .. "m]")
         end
-
-        local nl = entry.Name
-        nl.Visible = true
-        nl.Color = Color3.fromRGB(245, 241, 255)
-        nl.Text = textStr
-        nl.Size = 12
-        nl.Center = true
-        nl.Position = Vector2.new(pos.X + size.X / 2, pos.Y - 15)
+        entry.NameLabel.Text = textStr
+        entry.NameLabel.Visible = true
+    else
+        entry.NameLabel.Visible = false
     end
 
-    -- 4. Tool ESP (Bottom of Box)
+    -- 4. Tool ESP
     if VisualsState.ToolESP then
-        local toolName = getCharacterTool(char)
-        if toolName then
-            local tl = entry.Tool
-            tl.Visible = true
-            tl.Color = Color3.fromRGB(205, 104, 255)
-            tl.Text = toolName
-            tl.Size = 11
-            tl.Center = true
-            tl.Position = Vector2.new(pos.X + size.X / 2, pos.Y + size.Y + 3)
+        local tool = getCharacterTool(char)
+        if tool then
+            entry.ToolLabel.Text = tool
+            entry.ToolLabel.Visible = true
+        else
+            entry.ToolLabel.Visible = false
         end
+    else
+        entry.ToolLabel.Visible = false
     end
 
     -- 5. Tracers
-    if VisualsState.Tracers then
-        local tr = entry.Tracer
-        tr.Visible = true
-        tr.Color = espColor
-        tr.Thickness = 1
-        tr.From = getTracerOrigin()
-        tr.To = Vector2.new(pos.X + size.X / 2, pos.Y + size.Y)
+    if VisualsState.Tracers and entry.TracerFrame then
+        local rootPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+        if onScreen then
+            local origin = getTracerOrigin()
+            local targetPos = Vector2.new(rootPos.X, rootPos.Y)
+            local dist = (targetPos - origin).Magnitude
+            local mid = (origin + targetPos) / 2
+            local angle = math.deg(math.atan2(targetPos.Y - origin.Y, targetPos.X - origin.X))
+
+            entry.TracerFrame.Visible = true
+            entry.TracerFrame.BackgroundColor3 = espColor
+            entry.TracerFrame.Size = UDim2.fromOffset(dist, 1.5)
+            entry.TracerFrame.Position = UDim2.fromOffset(mid.X, mid.Y)
+            entry.TracerFrame.Rotation = angle
+        else
+            entry.TracerFrame.Visible = false
+        end
+    elseif entry.TracerFrame then
+        entry.TracerFrame.Visible = false
     end
 end
 
--- RenderStepped render tick
+-- Render loop
 trackConnection(RunService.RenderStepped:Connect(function()
     for _, plr in ipairs(Players:GetPlayers()) do
         local entry = ESPHolders[plr]
         if not entry then
-            entry = createESPEntry(plr)
+            entry = createPlayerESP(plr)
             ESPHolders[plr] = entry
         end
-        updatePlayerESP(entry)
+        updatePlayer(entry)
     end
 end))
 
--- Handle PlayerAdded / PlayerRemoving
+-- Handle PlayerAdded & PlayerRemoving
 trackConnection(Players.PlayerAdded:Connect(function(plr)
     if not ESPHolders[plr] then
-        ESPHolders[plr] = createESPEntry(plr)
+        ESPHolders[plr] = createPlayerESP(plr)
     end
     plr.CharacterAdded:Connect(function()
         task.wait(0.3)
@@ -748,87 +701,123 @@ end))
 trackConnection(Players.PlayerRemoving:Connect(function(plr)
     restoreChams(plr)
     if ESPHolders[plr] then
-        removeESPEntry(ESPHolders[plr])
+        removePlayerESP(ESPHolders[plr])
         ESPHolders[plr] = nil
     end
 end))
 
--- Initialize existing players
+-- Pre-populate existing players
 for _, plr in ipairs(Players:GetPlayers()) do
     if not ESPHolders[plr] then
-        ESPHolders[plr] = createESPEntry(plr)
+        ESPHolders[plr] = createPlayerESP(plr)
     end
 end
 
 --//==================================================
---// EVENT HOOK CONNECTIONS FROM UI
+--// EVENT HOOK CONNECTIONS FROM UI (SAFE WRAPPERS)
 --//==================================================
 
+local function bindToggle(name, cb)
+    if type(_G.OnToggle) == "function" then
+        _G.OnToggle(name, cb)
+    else
+        _G.AtomwareEvents = _G.AtomwareEvents or {}
+        _G.AtomwareEvents[name] = cb
+    end
+end
+
+local function bindSlider(name, cb)
+    if type(_G.OnSlider) == "function" then
+        _G.OnSlider(name, cb)
+    else
+        _G.AtomwareEvents = _G.AtomwareEvents or {}
+        _G.AtomwareEvents[name] = cb
+    end
+end
+
+local function bindDropdown(name, cb)
+    if type(_G.OnDropdown) == "function" then
+        _G.OnDropdown(name, cb)
+    else
+        _G.AtomwareEvents = _G.AtomwareEvents or {}
+        _G.AtomwareEvents[name] = cb
+    end
+end
+
+local function bindColorPicker(name, cb)
+    if type(_G.OnColorPicker) == "function" then
+        _G.OnColorPicker(name, cb)
+    else
+        _G.AtomwareEvents = _G.AtomwareEvents or {}
+        _G.AtomwareEvents[name] = cb
+    end
+end
+
 -- Player ESP
-_G.OnToggle("Enable ESP", function(v) VisualsState.ESPEnabled = v end)
-_G.OnToggle("Box ESP", function(v) VisualsState.BoxESP = v end)
-_G.OnDropdown("Box Style", function(v) VisualsState.BoxStyle = v end)
-_G.OnToggle("Name ESP", function(v) VisualsState.NameESP = v end)
-_G.OnToggle("Distance ESP", function(v) VisualsState.DistanceESP = v end)
-_G.OnToggle("Health Bar", function(v) VisualsState.HealthBar = v end)
-_G.OnToggle("Tool ESP", function(v) VisualsState.ToolESP = v end)
-_G.OnToggle("Tracers", function(v) VisualsState.Tracers = v end)
-_G.OnDropdown("Tracer Origin", function(v) VisualsState.TracerOrigin = v end)
-_G.OnToggle("Team Check", function(v) VisualsState.TeamCheck = v end)
-_G.OnColorPicker("ESP Color", function(v) VisualsState.ESPColor = v end)
-_G.OnColorPicker("Team Color", function(v) VisualsState.TeamColor = v end)
+bindToggle("Enable ESP", function(v) VisualsState.ESPEnabled = v end)
+bindToggle("Box ESP", function(v) VisualsState.BoxESP = v end)
+bindDropdown("Box Style", function(v) VisualsState.BoxStyle = v end)
+bindToggle("Name ESP", function(v) VisualsState.NameESP = v end)
+bindToggle("Distance ESP", function(v) VisualsState.DistanceESP = v end)
+bindToggle("Health Bar", function(v) VisualsState.HealthBar = v end)
+bindToggle("Tool ESP", function(v) VisualsState.ToolESP = v end)
+bindToggle("Tracers", function(v) VisualsState.Tracers = v end)
+bindDropdown("Tracer Origin", function(v) VisualsState.TracerOrigin = v end)
+bindToggle("Team Check", function(v) VisualsState.TeamCheck = v end)
+bindColorPicker("ESP Color", function(v) VisualsState.ESPColor = v end)
+bindColorPicker("Team Color", function(v) VisualsState.TeamColor = v end)
 
 -- Material Chams (t1r4)
-_G.OnToggle("Enable Chams", function(v)
+bindToggle("Enable Chams", function(v)
     VisualsState.ChamsEnabled = v
     refreshAllChams()
 end)
-_G.OnDropdown("Material", function(v)
+bindDropdown("Material", function(v)
     if ChamsMaterials[v] then
         restoreAllChams()
         VisualsState.ChamsMaterial = v
         refreshAllChams()
     end
 end)
-_G.OnColorPicker("Chams Color", function(v)
+bindColorPicker("Chams Color", function(v)
     VisualsState.ChamsColor = v
     refreshAllChams()
 end)
-_G.OnToggle("See Through (Glow)", function(v)
+bindToggle("See Through (Glow)", function(v)
     VisualsState.ChamsSeeThrough = v
     refreshAllChams()
 end)
-_G.OnToggle("Chams Team Check", function(v)
+bindToggle("Chams Team Check", function(v)
     VisualsState.ChamsTeamCheck = v
     refreshAllChams()
 end)
 
 -- Chinese Hat ESP
-_G.OnToggle("Chinese Hat", function(v) VisualsState.HatEnabled = v end)
-_G.OnToggle("Hat on Local Player", function(v) VisualsState.HatLocalPlayer = v end)
-_G.OnToggle("Hat on Others", function(v) VisualsState.HatOthers = v end)
-_G.OnSlider("Hat Radius", function(v) VisualsState.HatRadius = v end)
-_G.OnSlider("Hat Segments", function(v) VisualsState.HatSegments = v end)
-_G.OnColorPicker("Hat Color", function(v) VisualsState.HatColor = v end)
-_G.OnToggle("Rotate Hat", function(v) VisualsState.HatRotate = v end)
+bindToggle("Chinese Hat", function(v) VisualsState.HatEnabled = v end)
+bindToggle("Hat on Local Player", function(v) VisualsState.HatLocalPlayer = v end)
+bindToggle("Hat on Others", function(v) VisualsState.HatOthers = v end)
+bindSlider("Hat Radius", function(v) VisualsState.HatRadius = v end)
+bindSlider("Hat Segments", function(v) VisualsState.HatSegments = v end)
+bindColorPicker("Hat Color", function(v) VisualsState.HatColor = v end)
+bindToggle("Rotate Hat", function(v) VisualsState.HatRotate = v end)
 
 --//==================================================
---// CLEANUP HANDLER ON UNLOAD
+--// UNLOAD HANDLER
 --//==================================================
 
-if _G.AtomwareConfig then
+if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
     _G.AtomwareConfig:OnUnload(function()
         restoreAllChams()
         for _, entry in pairs(ESPHolders) do
-            removeESPEntry(entry)
+            removePlayerESP(entry)
         end
         table.clear(ESPHolders)
-        if FallbackGui then
-            pcall(function() FallbackGui:Destroy() end)
-            FallbackGui = nil
+        if ScreenGuiContainer then
+            pcall(function() ScreenGuiContainer:Destroy() end)
+            ScreenGuiContainer = nil
         end
     end)
 end
 
 _G.AtomwareFeaturesLoaded = true
-print("Atomware Universal: Phase 1 Visuals Backend Loaded")
+print("Atomware Universal: Cross-Platform Visuals Engine Online")
