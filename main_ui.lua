@@ -134,7 +134,9 @@ local THEME = {
     TextMuted       = Color3.fromRGB(155, 142, 185),
     TextDim         = Color3.fromRGB(95, 82, 122),
 
+    Row             = Color3.fromRGB(20, 14, 38),
     Green           = Color3.fromRGB(42, 255, 157),
+    Yellow          = Color3.fromRGB(255, 205, 75),
     Red             = Color3.fromRGB(255, 75, 125),
 }
 
