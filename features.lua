@@ -286,18 +286,30 @@ local BOX_EDGES = {
 
 local function createPlayerESP(player)
     local container = ensureScreenGuiContainer()
+    if not container then return nil end
 
-    local holder = Instance.new("Folder")
+    -- CRITICAL: Use a full-viewport transparent Frame as the per-player holder.
+    -- Folder instances cannot parent GuiObjects for rendering on Roblox iOS/iPad.
+    -- All GuiObject children must live inside a GuiObject (Frame), not a Folder.
+    local holder = Instance.new("Frame")
     holder.Name = "AtomwareESP_" .. player.Name
+    holder.Size = UDim2.fromScale(1, 1)
+    holder.Position = UDim2.fromScale(0, 0)
+    holder.BackgroundTransparency = 1
+    holder.BorderSizePixel = 0
+    holder.ClipsDescendants = false
+    -- ZIndex > 1 ensures it sits above the base ScreenGui layer
+    holder.ZIndex = 2
     pcall(function() holder.Parent = container end)
 
-    -- 1. 2D Box Frame
+    -- 1. 2D Box Frame (absolute pixels, positioned each frame)
     local boxFrame = Instance.new("Frame")
     boxFrame.Name = "BoxFrame"
     boxFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     boxFrame.BackgroundTransparency = 1
     boxFrame.BorderSizePixel = 0
     boxFrame.Visible = false
+    boxFrame.ZIndex = 3
     boxFrame.Parent = holder
 
     local boxStroke = Instance.new("UIStroke")
@@ -307,12 +319,14 @@ local function createPlayerESP(player)
     boxStroke.LineJoinMode = Enum.LineJoinMode.Miter
     boxStroke.Parent = boxFrame
 
-    -- 2. Corner Box Container inside boxFrame
+    -- 2. Corner Box Container inside boxFrame (same size, hidden by default)
     local cornerContainer = Instance.new("Frame")
     cornerContainer.Name = "CornerContainer"
     cornerContainer.BackgroundTransparency = 1
+    cornerContainer.BorderSizePixel = 0
     cornerContainer.Size = UDim2.fromScale(1, 1)
     cornerContainer.Visible = false
+    cornerContainer.ZIndex = 3
     cornerContainer.Parent = boxFrame
 
     local cornerBrackets = {}
@@ -320,11 +334,12 @@ local function createPlayerESP(player)
         local line = Instance.new("Frame")
         line.BorderSizePixel = 0
         line.BackgroundColor3 = VisualsState.ESPColor
+        line.ZIndex = 4
         line.Parent = cornerContainer
         table.insert(cornerBrackets, line)
     end
 
-    -- 3. 3D Wireframe Box Lines (12 lines parented to holder)
+    -- 3. 3D Wireframe Box Lines (12 edge lines, each absolute-positioned each frame)
     local box3DLines = {}
     for i = 1, 12 do
         local line = Instance.new("Frame")
@@ -333,17 +348,19 @@ local function createPlayerESP(player)
         line.BorderSizePixel = 0
         line.BackgroundColor3 = VisualsState.ESPColor
         line.Visible = false
+        line.ZIndex = 3
         line.Parent = holder
         table.insert(box3DLines, line)
     end
 
-    -- 4. Health Bar (Background + Fill)
+    -- 4. Health Bar Background + Fill
     local healthBarBg = Instance.new("Frame")
     healthBarBg.Name = "HealthBarBg"
     healthBarBg.AnchorPoint = Vector2.new(1, 0)
     healthBarBg.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
     healthBarBg.BorderSizePixel = 0
     healthBarBg.Visible = false
+    healthBarBg.ZIndex = 3
     healthBarBg.Parent = holder
 
     local healthStroke = Instance.new("UIStroke")
@@ -358,12 +375,14 @@ local function createPlayerESP(player)
     healthBarFill.Size = UDim2.new(1, 0, 1, 0)
     healthBarFill.BackgroundColor3 = Color3.fromRGB(42, 255, 157)
     healthBarFill.BorderSizePixel = 0
+    healthBarFill.ZIndex = 4
     healthBarFill.Parent = healthBarBg
 
-    -- 5. Name & Distance Label
+    -- 5. Name & Distance Label (absolute-positioned each frame)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "NameLabel"
     nameLabel.AnchorPoint = Vector2.new(0.5, 1)
+    nameLabel.Size = UDim2.fromOffset(200, 16)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Font = Enum.Font.GothamBold
     nameLabel.TextSize = 13
@@ -373,12 +392,14 @@ local function createPlayerESP(player)
     nameLabel.TextXAlignment = Enum.TextXAlignment.Center
     nameLabel.TextYAlignment = Enum.TextYAlignment.Center
     nameLabel.Visible = false
+    nameLabel.ZIndex = 5
     nameLabel.Parent = holder
 
-    -- 6. Tool Label
+    -- 6. Tool Label (absolute-positioned each frame)
     local toolLabel = Instance.new("TextLabel")
     toolLabel.Name = "ToolLabel"
     toolLabel.AnchorPoint = Vector2.new(0.5, 0)
+    toolLabel.Size = UDim2.fromOffset(200, 14)
     toolLabel.BackgroundTransparency = 1
     toolLabel.Font = Enum.Font.GothamMedium
     toolLabel.TextSize = 12
@@ -388,6 +409,7 @@ local function createPlayerESP(player)
     toolLabel.TextXAlignment = Enum.TextXAlignment.Center
     toolLabel.TextYAlignment = Enum.TextYAlignment.Center
     toolLabel.Visible = false
+    toolLabel.ZIndex = 5
     toolLabel.Parent = holder
 
     -- 7. Tracer Line
@@ -397,6 +419,7 @@ local function createPlayerESP(player)
     tracerFrame.BorderSizePixel = 0
     tracerFrame.BackgroundColor3 = VisualsState.ESPColor
     tracerFrame.Visible = false
+    tracerFrame.ZIndex = 2
     tracerFrame.Parent = holder
 
     return {
