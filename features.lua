@@ -167,8 +167,15 @@ local VisualsState = {
     HitboxColor         = Color3.fromRGB(157, 48, 255),
     HitboxMaterial      = "ForceField",
 
+    -- Triggerbot
+    TriggerbotEnabled   = false,
+    TriggerbotDelay     = 0.05,    -- seconds before clicking
+    TriggerbotRadius    = 12,      -- screen-space px radius around crosshair
+    TriggerbotMode      = "Always On", -- "Always On" | "Aimbot Only"
+
     -- Visual Enhancements
-    HealthBasedColor    = false,
+    HealthBasedColor      = false,   -- ESP box color (legacy, kept for compat)
+    HealthBarBasedColor   = false,   -- health bar color based on HP %
     LookRays            = false,
     LookRayLength       = 7,
     LookRayColor        = Color3.fromRGB(255, 100, 100),
@@ -499,9 +506,20 @@ end
 
 --//==================================================
 --// HITBOX EXPANDER ENGINE (UNIVERSAL / CROSS-PLATFORM)
+--// Uses a separate welded invisible part instead of resizing the real part.
+--// This avoids the HRP-resize freeze bug completely.
 --//==================================================
 
-local HitboxApplied = {}
+local HitboxApplied = {}         -- [plr] = hitboxPart
+local HitboxRespawnConns = {}    -- [plr] = CharacterAdded connection
+
+local function removeHitboxPart(plr)
+    local existing = HitboxApplied[plr]
+    if existing then
+        pcall(function() existing:Destroy() end)
+        HitboxApplied[plr] = nil
+    end
+end
 
 local function applyHitboxToPlayer(plr)
     if not VisualsState.HitboxEnabled or plr == LocalPlayer then return end
@@ -511,51 +529,65 @@ local function applyHitboxToPlayer(plr)
     local myTeam = nil
     pcall(function() myTeam = LocalPlayer.Team end)
     if VisualsState.TeamCheck and myTeam and plr.Team == myTeam then
+        removeHitboxPart(plr)
         return
     end
 
     local partName = VisualsState.HitboxPart
-    local part = char:FindFirstChild(partName)
-    if not part or not part:IsA("BasePart") then return end
+    local targetPart = char:FindFirstChild(partName)
+    if not targetPart or not targetPart:IsA("BasePart") then return end
 
-    if not HitboxApplied[plr] then
-        HitboxApplied[plr] = {
-            part = part,
-            origSize = part.Size,
-            origTrans = part.Transparency,
-            origColor = part.Color,
-            origMat = part.Material,
-            origCanCollide = part.CanCollide,
-        }
+    -- Remove stale hitbox if target part changed or character changed
+    local existing = HitboxApplied[plr]
+    if existing then
+        if existing.Parent ~= char then
+            pcall(function() existing:Destroy() end)
+            HitboxApplied[plr] = nil
+            existing = nil
+        else
+            -- Update properties on existing hitbox
+            local sz = VisualsState.HitboxSize
+            existing.Size = Vector3.new(sz, sz, sz)
+            existing.Transparency = VisualsState.HitboxTransparency
+            existing.Color = VisualsState.HitboxColor
+            local mat = Enum.Material[VisualsState.HitboxMaterial]
+            existing.Material = mat or Enum.Material.ForceField
+            return
+        end
     end
 
-    local size = VisualsState.HitboxSize
-    part.Size = Vector3.new(size, size, size)
-    part.Transparency = VisualsState.HitboxTransparency
-    part.CanCollide = false
-    part.Massless = true
-    part.Color = VisualsState.HitboxColor
-    part.Material = Enum.Material[VisualsState.HitboxMaterial] or Enum.Material.ForceField
+    -- Create a new hitbox part welded to the target
+    local hitboxPart = Instance.new("Part")
+    hitboxPart.Name = "AtomwareHitbox"
+    hitboxPart.CanCollide = false
+    hitboxPart.CanTouch = false
+    hitboxPart.CanQuery = true     -- must be queryable so raycasts hit it
+    hitboxPart.Massless = true
+    hitboxPart.Anchored = false
+    local sz = VisualsState.HitboxSize
+    hitboxPart.Size = Vector3.new(sz, sz, sz)
+    hitboxPart.Transparency = VisualsState.HitboxTransparency
+    hitboxPart.Color = VisualsState.HitboxColor
+    local mat = Enum.Material[VisualsState.HitboxMaterial]
+    hitboxPart.Material = mat or Enum.Material.ForceField
+    hitboxPart.CFrame = targetPart.CFrame
+
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = targetPart
+    weld.Part1 = hitboxPart
+    weld.Parent = hitboxPart
+
+    hitboxPart.Parent = char
+    HitboxApplied[plr] = hitboxPart
 end
 
 local function restoreHitboxForPlayer(plr)
-    local rec = HitboxApplied[plr]
-    if rec then
-        local part = rec.part
-        if part and part.Parent then
-            part.Size = rec.origSize
-            part.Transparency = rec.origTrans
-            part.Color = rec.origColor
-            part.Material = rec.origMat
-            part.CanCollide = rec.origCanCollide
-        end
-        HitboxApplied[plr] = nil
-    end
+    removeHitboxPart(plr)
 end
 
 local function restoreAllHitboxes()
     for plr in pairs(HitboxApplied) do
-        restoreHitboxForPlayer(plr)
+        removeHitboxPart(plr)
     end
     table.clear(HitboxApplied)
 end
@@ -571,6 +603,35 @@ local function refreshAllHitboxes()
         end
     end
 end
+
+-- Wire CharacterAdded for all existing + future players so hitbox persists through respawns
+local function wireHitboxRespawn(plr)
+    if HitboxRespawnConns[plr] then
+        pcall(function() HitboxRespawnConns[plr]:Disconnect() end)
+    end
+    HitboxRespawnConns[plr] = plr.CharacterAdded:Connect(function()
+        task.wait(0.5) -- wait for character to load
+        removeHitboxPart(plr)
+        if VisualsState.HitboxEnabled then
+            pcall(function() applyHitboxToPlayer(plr) end)
+        end
+    end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then wireHitboxRespawn(plr) end
+end
+trackConnection(Players.PlayerAdded:Connect(function(plr)
+    wireHitboxRespawn(plr)
+end))
+trackConnection(Players.PlayerRemoving:Connect(function(plr)
+    removeHitboxPart(plr)
+    if HitboxRespawnConns[plr] then
+        pcall(function() HitboxRespawnConns[plr]:Disconnect() end)
+        HitboxRespawnConns[plr] = nil
+    end
+end))
+
 
 --//==================================================
 --// AIMBOT ENGINE (UNIVERSAL / PC & MOBILE SUPPORT)
@@ -842,7 +903,74 @@ local function updateAimbot()
 end
 
 --//==================================================
---// RIG & TOOL DETECTION
+--// TRIGGERBOT ENGINE
+--// Screen-space radius check: auto-clicks when an enemy
+--// is within TriggerbotRadius px of the crosshair center.
+--// Modes: "Always On" | "Aimbot Only"
+--//==================================================
+
+local triggerbotCooldown = false
+
+local function updateTriggerbot()
+    if not VisualsState.TriggerbotEnabled then return end
+
+    -- "Aimbot Only" mode: only trigger when aimbot is actively aiming
+    if VisualsState.TriggerbotMode == "Aimbot Only" then
+        local isAiming = VisualsState.AimLock or VisualsState.AimActive
+            or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+        if not isAiming then return end
+    end
+
+    if triggerbotCooldown then return end
+
+    local center = getAimReferencePoint()
+    local radius = math.max(VisualsState.TriggerbotRadius, 1)
+
+    local myTeam = nil
+    pcall(function() myTeam = LocalPlayer.Team end)
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and not VisualsState.Whitelisted[plr.UserId] then
+            local char = plr.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                local isTeammate = VisualsState.AimbotTeamCheck and myTeam and plr.Team == myTeam
+                if not isTeammate then
+                    -- Check each target part
+                    for _, partName in ipairs({"Head", "HumanoidRootPart", "UpperTorso", "Torso"}) do
+                        local part = char:FindFirstChild(partName)
+                        if part then
+                            local screen, onScreen = Camera:WorldToViewportPoint(part.Position)
+                            if onScreen and screen.Z > 0 then
+                                local dx = screen.X - center.X
+                                local dy = screen.Y - center.Y
+                                if math.sqrt(dx * dx + dy * dy) <= radius then
+                                    -- Enemy in crosshair — fire after delay
+                                    triggerbotCooldown = true
+                                    task.delay(math.max(VisualsState.TriggerbotDelay, 0), function()
+                                        -- Simulate mouse click
+                                        if type(mouse1click) == "function" then
+                                            pcall(mouse1click)
+                                        elseif type(mouse1press) == "function" and type(mouse1release) == "function" then
+                                            pcall(mouse1press)
+                                            task.wait(0.05)
+                                            pcall(mouse1release)
+                                        end
+                                        task.wait(0.1)
+                                        triggerbotCooldown = false
+                                    end)
+                                    return -- only fire once per frame
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+
 --//==================================================
 
 local function getCharacterRigType(character)
@@ -1415,11 +1543,7 @@ local function updatePlayer(entry)
     end
 
     local espColor = (isTeammate and VisualsState.TeamColor) or VisualsState.ESPColor
-    if VisualsState.HealthBasedColor and hum and hum.Health > 0 then
-        local maxHp = (hum.MaxHealth > 0) and hum.MaxHealth or 100
-        local hpPct = math.clamp(hum.Health / maxHp, 0, 1)
-        espColor = Color3.fromHSV(hpPct * 0.33, 0.9, 1)
-    end
+    -- Note: HealthBarBasedColor only applies to the health bar fill, not the box color
 
     local rig = getCharacterRigType(char)
 
@@ -1543,7 +1667,11 @@ local function updatePlayer(entry)
         entry.HealthBarBg.Visible = true
 
         entry.HealthBarFill.Size = UDim2.new(1, 0, hpPct, 0)
-        entry.HealthBarFill.BackgroundColor3 = Color3.fromHSV(hpPct * 0.33, 0.9, 1)
+        if VisualsState.HealthBarBasedColor then
+            entry.HealthBarFill.BackgroundColor3 = Color3.fromHSV(hpPct * 0.33, 0.9, 1)
+        else
+            entry.HealthBarFill.BackgroundColor3 = Color3.fromRGB(42, 255, 120)
+        end
 
         if entry.HpLabel then
             if hum.Health < hum.MaxHealth - 1 then
@@ -2223,27 +2351,26 @@ local function spawnBulletTracer(originPos, hitPos)
     end
 end
 
--- Universal hit detection: raycast from tool handle in camera look direction
+-- Universal Bullet Tracers:
+-- Hitscan weapons  → instant raycast tracer on Tool.Activated
+-- Projectile games → per-frame trail segments tracking the actual part as it flies
 local tracerConnections = {}
 
 local function connectBulletTracers()
-    -- Clean up old connections
     for _, c in ipairs(tracerConnections) do pcall(function() c:Disconnect() end) end
     table.clear(tracerConnections)
 
+    -- ── HITSCAN: raycast from handle on tool activation ──────────────────────
     local function watchTool(tool)
         if not tool or not tool:IsA("Tool") then return end
         local conn = tool.Activated:Connect(function()
             if not VisualsState.BulletTracersEnabled then return end
-            task.wait() -- slight delay to let physics settle
 
             local char = LocalPlayer.Character
             if not char then return end
-            local rootPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
             local handle = tool:FindFirstChild("Handle")
-            local originPos = handle and handle.Position or (rootPart and rootPart.Position) or Camera.CFrame.Position
+            local originPos = handle and handle.Position or Camera.CFrame.Position
 
-            -- Raycast in camera look direction, max 500 studs
             local direction = Camera.CFrame.LookVector * 500
             local params = RaycastParams.new()
             params.FilterDescendantsInstances = {char, tool}
@@ -2254,12 +2381,10 @@ local function connectBulletTracers()
 
             pcall(spawnBulletTracer, originPos, hitPos)
 
-            -- Hit detection: if a character was hit, fire hitmarker + sound
             if result and result.Instance then
                 local hitChar = result.Instance:FindFirstAncestorOfClass("Model")
                 local hitHum = hitChar and hitChar:FindFirstChildOfClass("Humanoid")
                 if hitHum and hitHum.Health > 0 then
-                    -- Check it's not local player
                     local hitPlayer = Players:GetPlayerFromCharacter(hitChar)
                     if hitPlayer and hitPlayer ~= LocalPlayer then
                         onHitDetected()
@@ -2270,7 +2395,6 @@ local function connectBulletTracers()
         table.insert(tracerConnections, conn)
     end
 
-    -- Watch current equipped tool
     local function onChildAdded(child)
         if child:IsA("Tool") then watchTool(child) end
     end
@@ -2285,49 +2409,68 @@ local function connectBulletTracers()
         table.insert(tracerConnections, newChar.ChildAdded:Connect(onChildAdded))
     end))
 
-    -- Also watch for physical projectiles in Workspace
+    -- ── PROJECTILE: per-frame trail behind moving parts ───────────────────────
     local projectileNames = {
-        bullet = true, projectile = true, arrow = true,
-        missile = true, rocket = true, ball = true, shard = true,
+        bullet=true, projectile=true, arrow=true, missile=true,
+        rocket=true, ball=true, shard=true, pellet=true,
     }
+
     table.insert(tracerConnections, Workspace.DescendantAdded:Connect(function(desc)
         if not VisualsState.BulletTracersEnabled then return end
         if not desc:IsA("BasePart") then return end
         if not projectileNames[desc.Name:lower()] then return end
 
-        -- Track projectile until it stops (touched wall) or times out
-        local startPos = desc.Position
-        local touched = false
+        local lastPos = desc.Position
+        local alive   = true
+        local deadline = tick() + 6 -- max 6 sec lifetime
+
+        -- Touched → stop tracking, draw final segment, fire hitmarker
         local touchConn
         touchConn = desc.Touched:Connect(function(hit)
-            if touched then return end
-            -- Ignore character parts
-            local hitChar = hit:FindFirstAncestorOfClass("Model")
-            local hitHum = hitChar and hitChar:FindFirstChildOfClass("Humanoid")
-            local isChar = hitHum ~= nil
-
-            touched = true
+            if not alive then return end
+            alive = false
             pcall(function() touchConn:Disconnect() end)
 
             local endPos = desc.Position
-            pcall(spawnBulletTracer, startPos, endPos)
+            pcall(spawnBulletTracer, lastPos, endPos)
 
-            if isChar and hitHum and hitHum.Health > 0 then
+            local hitChar = hit:FindFirstAncestorOfClass("Model")
+            local hitHum  = hitChar and hitChar:FindFirstChildOfClass("Humanoid")
+            if hitHum and hitHum.Health > 0 then
                 local hitPlayer = Players:GetPlayerFromCharacter(hitChar)
                 if hitPlayer and hitPlayer ~= LocalPlayer then
                     onHitDetected()
                 end
             end
         end)
-        -- Auto cleanup after 4 seconds
-        task.delay(4, function()
+
+        -- Per-frame trail: draw small segments between prev and current position
+        local heartbeat
+        heartbeat = RunService.Heartbeat:Connect(function()
+            if not alive or tick() > deadline or not desc.Parent then
+                alive = false
+                pcall(function() touchConn:Disconnect() end)
+                pcall(function() heartbeat:Disconnect() end)
+                return
+            end
+            if not VisualsState.BulletTracersEnabled then return end
+            local curPos = desc.Position
+            local segDist = (curPos - lastPos).Magnitude
+            if segDist > 0.05 then  -- only draw if part actually moved
+                pcall(spawnBulletTracer, lastPos, curPos)
+                lastPos = curPos
+            end
+        end)
+        table.insert(tracerConnections, heartbeat)
+        task.delay(6, function()
+            alive = false
             pcall(function() touchConn:Disconnect() end)
         end)
     end))
 end
 
--- Wire up bullet tracers (enabled check inside each callback)
 connectBulletTracers()
+
 
 --//==================================================
 --// WORLD LIGHTING ENGINE (TIME OF DAY, SKYBOX, NO FOG)
@@ -2463,16 +2606,19 @@ trackConnection(RunService.RenderStepped:Connect(function()
     -- 5. Aimbot Logic & Target HUD
     pcall(updateAimbot)
 
-    -- 3. Hitbox Expander Update
+    -- 6. Triggerbot
+    pcall(updateTriggerbot)
+
+    -- 7. Hitbox Expander Update (only re-apply if missing, CharacterAdded handles respawn)
     if VisualsState.HitboxEnabled then
         for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
+            if plr ~= LocalPlayer and plr.Character and not HitboxApplied[plr] then
                 pcall(applyHitboxToPlayer, plr)
             end
         end
     end
 
-    -- 4. Player ESP Update
+    -- 8. Player ESP Update
     for _, plr in ipairs(Players:GetPlayers()) do
         local entry = ESPHolders[plr]
         if not entry then
@@ -2828,7 +2974,7 @@ bindSlider("FreeCam Speed", function(v) MovementState.FreeCamSpeed = v end)
 --// NEW VISUALS, RADAR, CROSSHAIR & WORLD BINDINGS
 --//==================================================
 
-bindToggle("Health-Based Colors", function(v) VisualsState.HealthBasedColor = v end)
+bindToggle("Health Bar Color (HP-based)", function(v) VisualsState.HealthBarBasedColor = v end)
 bindToggle("Look Direction Rays", function(v) VisualsState.LookRays = v end)
 bindSlider("Ray Length", function(v) VisualsState.LookRayLength = v end)
 bindColorPicker("Ray Color", function(v) VisualsState.LookRayColor = v end)
@@ -2859,6 +3005,12 @@ bindToggle("Target HUD", function(v)
     VisualsState.TargetHUD = v
     if not v and TargetHUDFrame then TargetHUDFrame.Visible = false end
 end)
+
+-- Triggerbot
+bindToggle("Triggerbot", function(v) VisualsState.TriggerbotEnabled = v end)
+bindSlider("Triggerbot Delay", function(v) VisualsState.TriggerbotDelay = v end)
+bindSlider("Triggerbot Radius", function(v) VisualsState.TriggerbotRadius = v end)
+bindDropdown("Triggerbot Mode", function(v) VisualsState.TriggerbotMode = v end)
 
 -- Whitelist System
 _G.AtomwareEvents = _G.AtomwareEvents or {}

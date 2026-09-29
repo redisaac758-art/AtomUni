@@ -982,38 +982,43 @@ for i, t in ipairs(tabsData) do
 end
 
 -- ---------------------------------------------------
--- TAB 1: VISUALS
+-- TAB 1: VISUALS  (8 cards → auto-balanced L/R 4+4)
 -- ---------------------------------------------------
 local pVisuals = Pages["Visuals"]
 
-local _, bPlayerESP = createCard(pVisuals, "Player ESP")
+-- LEFT col card 1
+local _, bPlayerESP = createCard(pVisuals, "Player ESP — Detection")
 createToggle(bPlayerESP, "Enable ESP", false)
 createToggle(bPlayerESP, "Box ESP", false)
 createDropdown(bPlayerESP, "Box Style", { "2D Box", "Corner Box", "3D Box" }, "2D Box")
 createToggle(bPlayerESP, "Name ESP", false)
 createToggle(bPlayerESP, "Distance ESP", false)
 createToggle(bPlayerESP, "Health Bar", false)
+createToggle(bPlayerESP, "Health Bar Color (HP-based)", false)
 createToggle(bPlayerESP, "Tool ESP", false)
 createToggle(bPlayerESP, "Tracers", false)
 createDropdown(bPlayerESP, "Tracer Origin", { "Bottom", "Center", "Mouse" }, "Bottom")
-createToggle(bPlayerESP, "Health-Based Colors", false)
-createToggle(bPlayerESP, "Look Direction Rays", false)
-createSlider(bPlayerESP, "Ray Length", 3, 20, 7, 1, " studs")
-createColorPicker(bPlayerESP, "Ray Color", Color3.fromRGB(255, 100, 100))
-createToggle(bPlayerESP, "Skeleton / Bone ESP", false)
-createColorPicker(bPlayerESP, "Skeleton Color", Color3.fromRGB(220, 220, 255))
-createToggle(bPlayerESP, "Team Check", false)
-createColorPicker(bPlayerESP, "ESP Color", Color3.fromRGB(157, 48, 255))
-createColorPicker(bPlayerESP, "Team Color", Color3.fromRGB(42, 255, 157))
 
+-- RIGHT col card 1
+local _, bPlayerESP2 = createCard(pVisuals, "Player ESP — Style")
+createToggle(bPlayerESP2, "Look Direction Rays", false)
+createSlider(bPlayerESP2, "Ray Length", 3, 30, 7, 1, " studs")
+createColorPicker(bPlayerESP2, "Ray Color", Color3.fromRGB(255, 100, 100))
+createToggle(bPlayerESP2, "Skeleton / Bone ESP", false)
+createColorPicker(bPlayerESP2, "Skeleton Color", Color3.fromRGB(220, 220, 255))
+createToggle(bPlayerESP2, "Team Check", false)
+createColorPicker(bPlayerESP2, "ESP Color", Color3.fromRGB(157, 48, 255))
+createColorPicker(bPlayerESP2, "Team Color", Color3.fromRGB(42, 255, 157))
+
+-- LEFT col card 2
 local _, bChams = createCard(pVisuals, "Material Chams")
 createToggle(bChams, "Enable Chams", false)
-local chamsMaterialOptions = { "ForceField", "Neon", "Glass", "Ice", "Marble", "Foil", "Metal", "Wood" }
-createDropdown(bChams, "Material", chamsMaterialOptions, "ForceField")
+createDropdown(bChams, "Material", { "ForceField", "Neon", "Glass", "Ice", "Marble", "Foil", "Metal", "Wood" }, "ForceField")
 createColorPicker(bChams, "Chams Color", Color3.fromRGB(120, 200, 255))
 createToggle(bChams, "See Through (Glow)", true)
 createToggle(bChams, "Chams Team Check", false)
 
+-- RIGHT col card 2
 local _, bHat = createCard(pVisuals, "Chinese Hat ESP")
 createToggle(bHat, "Chinese Hat", false)
 createToggle(bHat, "Hat on Local Player", true)
@@ -1023,17 +1028,20 @@ createSlider(bHat, "Hat Segments", 6, 24, 12, 1, "")
 createColorPicker(bHat, "Hat Color", Color3.fromRGB(205, 104, 255))
 createToggle(bHat, "Rotate Hat", true)
 
+-- LEFT col card 3
 local _, bWorld = createCard(pVisuals, "World & Ambience")
 createToggle(bWorld, "No Fog", false)
 createToggle(bWorld, "Custom Time", false)
 createSlider(bWorld, "Time of Day", 0, 24, 14, 1, " hrs")
 createDropdown(bWorld, "Skybox Preset", { "Default", "Purple Nebula", "Night Galaxy", "Synthwave", "Overcast" }, "Default")
 
+-- RIGHT col card 3
 local _, bRadar = createCard(pVisuals, "Mini-Radar (2D HUD)")
 createToggle(bRadar, "Mini-Radar", false)
 createSlider(bRadar, "Radar Range", 50, 400, 150, 10, " studs")
 createSlider(bRadar, "Radar Size", 80, 200, 130, 5, " px")
 
+-- LEFT col card 4
 local _, bTracers = createCard(pVisuals, "Bullet Tracers")
 createToggle(bTracers, "Bullet Tracers", false)
 createColorPicker(bTracers, "Tracer Color", Color3.fromRGB(255, 60, 60))
@@ -1041,17 +1049,15 @@ createSlider(bTracers, "Tracer Thickness", 1, 8, 2, 0.5, " px")
 createSlider(bTracers, "Tracer Duration", 0.05, 2, 0.35, 0.05, " s")
 createToggle(bTracers, "Tracer Particles", true)
 
-local _, bHitmark = createCard(pVisuals, "Hitmarker")
+-- RIGHT col card 4
+local _, bHitmark = createCard(pVisuals, "Hitmarker & Hit Sounds")
 createToggle(bHitmark, "Hitmarker", false)
 createColorPicker(bHitmark, "Hitmarker Color", Color3.fromRGB(255, 255, 255))
 createSlider(bHitmark, "Hitmarker Size", 6, 40, 14, 1, " px")
 createSlider(bHitmark, "Hitmarker Duration", 0.05, 1, 0.25, 0.05, " s")
-
-local _, bHitSnd = createCard(pVisuals, "Hit Sounds")
-createToggle(bHitSnd, "Hit Sounds", false)
-createDropdown(bHitSnd, "Hit Sound Type", { "Default", "Rust", "Gamesense", "Magic", "Firework", "Lazer", "Pop", "Zap" }, "Default")
-createSlider(bHitSnd, "Hit Sound Volume", 0, 1, 0.7, 0.05, "")
-
+createToggle(bHitmark, "Hit Sounds", false)
+createDropdown(bHitmark, "Hit Sound Type", { "Default", "Rust", "Gamesense", "Magic", "Firework", "Lazer", "Pop", "Zap" }, "Default")
+createSlider(bHitmark, "Hit Sound Volume", 0, 1, 0.7, 0.05, "")
 
 -- ---------------------------------------------------
 -- TAB 2: COMBAT
@@ -1069,6 +1075,12 @@ createToggle(bAimbot, "Wall Check", false)
 createToggle(bAimbot, "Aimbot Team Check", false)
 createToggle(bAimbot, "Target HUD", true)
 
+local _, bTrigger = createCard(pCombat, "Triggerbot")
+createToggle(bTrigger, "Triggerbot", false)
+createDropdown(bTrigger, "Triggerbot Mode", { "Always On", "Aimbot Only" }, "Always On")
+createSlider(bTrigger, "Triggerbot Delay", 0, 0.5, 0.05, 0.01, " s")
+createSlider(bTrigger, "Triggerbot Radius", 2, 120, 12, 1, " px")
+
 local _, bFOV = createCard(pCombat, "FOV Circle")
 createToggle(bFOV, "Show FOV Circle", false)
 createSlider(bFOV, "FOV Radius", 30, 500, 120, 5, " px")
@@ -1083,6 +1095,7 @@ createSlider(bHitbox, "Hitbox Size", 1.5, 20, 5, 0.5, " studs")
 createSlider(bHitbox, "Hitbox Transparency", 0, 1, 0.6, 0.05, "")
 createColorPicker(bHitbox, "Hitbox Color", Color3.fromRGB(157, 48, 255))
 createDropdown(bHitbox, "Hitbox Material", { "ForceField", "Neon", "Glass", "SmoothPlastic" }, "ForceField")
+
 
 -- ---------------------------------------------------
 -- TAB 3: MOVEMENT
