@@ -302,11 +302,12 @@ local function createPlayerESP(player)
     holder.ZIndex = 2
     pcall(function() holder.Parent = container end)
 
-    -- 1. 2D Box Frame (absolute pixels, positioned each frame)
+    -- 1. 2D Box Frame (glass fill + double outline for crisp contrast)
     local boxFrame = Instance.new("Frame")
     boxFrame.Name = "BoxFrame"
     boxFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    boxFrame.BackgroundTransparency = 1
+    boxFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    boxFrame.BackgroundTransparency = 0.88
     boxFrame.BorderSizePixel = 0
     boxFrame.Visible = false
     boxFrame.ZIndex = 3
@@ -319,7 +320,14 @@ local function createPlayerESP(player)
     boxStroke.LineJoinMode = Enum.LineJoinMode.Miter
     boxStroke.Parent = boxFrame
 
-    -- 2. Corner Box Container inside boxFrame (same size, hidden by default)
+    local boxOutline = Instance.new("UIStroke")
+    boxOutline.Name = "BoxOutline"
+    boxOutline.Color = Color3.fromRGB(0, 0, 0)
+    boxOutline.Thickness = 1.0
+    boxOutline.LineJoinMode = Enum.LineJoinMode.Miter
+    boxOutline.Parent = boxFrame
+
+    -- 2. Corner Box Container inside boxFrame
     local cornerContainer = Instance.new("Frame")
     cornerContainer.Name = "CornerContainer"
     cornerContainer.BackgroundTransparency = 1
@@ -335,11 +343,18 @@ local function createPlayerESP(player)
         line.BorderSizePixel = 0
         line.BackgroundColor3 = VisualsState.ESPColor
         line.ZIndex = 4
+
+        local lineStroke = Instance.new("UIStroke")
+        lineStroke.Color = Color3.fromRGB(0, 0, 0)
+        lineStroke.Thickness = 1.0
+        lineStroke.LineJoinMode = Enum.LineJoinMode.Miter
+        lineStroke.Parent = line
+
         line.Parent = cornerContainer
         table.insert(cornerBrackets, line)
     end
 
-    -- 3. 3D Wireframe Box Lines (12 edge lines, each absolute-positioned each frame)
+    -- 3. 3D Wireframe Box Lines (12 edge lines)
     local box3DLines = {}
     for i = 1, 12 do
         local line = Instance.new("Frame")
@@ -353,11 +368,11 @@ local function createPlayerESP(player)
         table.insert(box3DLines, line)
     end
 
-    -- 4. Health Bar Background + Fill
+    -- 4. Health Bar Background + Fill + Text
     local healthBarBg = Instance.new("Frame")
     healthBarBg.Name = "HealthBarBg"
     healthBarBg.AnchorPoint = Vector2.new(1, 0)
-    healthBarBg.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    healthBarBg.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
     healthBarBg.BorderSizePixel = 0
     healthBarBg.Visible = false
     healthBarBg.ZIndex = 3
@@ -365,7 +380,7 @@ local function createPlayerESP(player)
 
     local healthStroke = Instance.new("UIStroke")
     healthStroke.Color = Color3.fromRGB(0, 0, 0)
-    healthStroke.Thickness = 1
+    healthStroke.Thickness = 1.0
     healthStroke.Parent = healthBarBg
 
     local healthBarFill = Instance.new("Frame")
@@ -378,34 +393,50 @@ local function createPlayerESP(player)
     healthBarFill.ZIndex = 4
     healthBarFill.Parent = healthBarBg
 
-    -- 5. Name & Distance Label (absolute-positioned each frame)
+    local hpLabel = Instance.new("TextLabel")
+    hpLabel.Name = "HpLabel"
+    hpLabel.AnchorPoint = Vector2.new(1, 0.5)
+    hpLabel.Size = UDim2.fromOffset(30, 12)
+    hpLabel.BackgroundTransparency = 1
+    hpLabel.Font = Enum.Font.GothamBold
+    hpLabel.TextSize = 10
+    hpLabel.TextColor3 = Color3.fromRGB(245, 245, 250)
+    hpLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    hpLabel.TextStrokeTransparency = 0.25
+    hpLabel.TextXAlignment = Enum.TextXAlignment.Right
+    hpLabel.Visible = false
+    hpLabel.ZIndex = 5
+    hpLabel.Parent = holder
+
+    -- 5. Name & Distance Label (RichText enabled, crisp Gothic bold)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "NameLabel"
     nameLabel.AnchorPoint = Vector2.new(0.5, 1)
-    nameLabel.Size = UDim2.fromOffset(200, 16)
+    nameLabel.Size = UDim2.fromOffset(260, 16)
     nameLabel.BackgroundTransparency = 1
+    nameLabel.RichText = true
     nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 13
-    nameLabel.TextColor3 = Color3.fromRGB(245, 241, 255)
+    nameLabel.TextSize = 12
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextStrokeTransparency = 0.25
     nameLabel.TextXAlignment = Enum.TextXAlignment.Center
     nameLabel.TextYAlignment = Enum.TextYAlignment.Center
     nameLabel.Visible = false
     nameLabel.ZIndex = 5
     nameLabel.Parent = holder
 
-    -- 6. Tool Label (absolute-positioned each frame)
+    -- 6. Tool Label
     local toolLabel = Instance.new("TextLabel")
     toolLabel.Name = "ToolLabel"
     toolLabel.AnchorPoint = Vector2.new(0.5, 0)
-    toolLabel.Size = UDim2.fromOffset(200, 14)
+    toolLabel.Size = UDim2.fromOffset(260, 14)
     toolLabel.BackgroundTransparency = 1
     toolLabel.Font = Enum.Font.GothamMedium
-    toolLabel.TextSize = 12
-    toolLabel.TextColor3 = Color3.fromRGB(205, 104, 255)
+    toolLabel.TextSize = 11
+    toolLabel.TextColor3 = Color3.fromRGB(215, 150, 255)
     toolLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    toolLabel.TextStrokeTransparency = 0
+    toolLabel.TextStrokeTransparency = 0.25
     toolLabel.TextXAlignment = Enum.TextXAlignment.Center
     toolLabel.TextYAlignment = Enum.TextYAlignment.Center
     toolLabel.Visible = false
@@ -432,6 +463,7 @@ local function createPlayerESP(player)
         Box3DLines = box3DLines,
         HealthBarBg = healthBarBg,
         HealthBarFill = healthBarFill,
+        HpLabel = hpLabel,
         NameLabel = nameLabel,
         ToolLabel = toolLabel,
         TracerFrame = tracerFrame,
@@ -447,7 +479,7 @@ local function removePlayerESP(entry)
 end
 
 --//==================================================
---// CHINESE HAT (HOVERING 3D PURPLE GRADIENT LINED CONE)
+--// CHINESE HAT (SLEEK HOVERING PURPLE GRADIENT CONE)
 --// Anchored in Workspace/Character like Chams
 --//==================================================
 
@@ -463,21 +495,21 @@ local function createLinedHat(char)
         h.Anchored = true
         h.Material = Enum.Material.ForceField -- Dynamic see-through energy purple gradient
         h.Color = VisualsState.HatColor
-        h.Transparency = 0.35
+        h.Transparency = 0.38
         h.Size = Vector3.new(0.2, 0.2, 0.2)
 
+        local scale = math.clamp(VisualsState.HatRadius * 0.72, 0.7, 2.2)
         local mesh = Instance.new("SpecialMesh")
         mesh.MeshType = Enum.MeshType.FileMesh
         mesh.MeshId = "rbxassetid://1033714" -- Official classic Asian straw cone hat mesh
-        local scale = VisualsState.HatRadius * 1.5
-        mesh.Scale = Vector3.new(scale, scale * 0.7, scale)
+        mesh.Scale = Vector3.new(scale, scale * 0.36, scale)
         mesh.Parent = h
 
-        -- 8 Glowing neon purple rib lines radiating from apex to brim
+        -- 8 Sleek delicate glowing neon purple rib lines radiating from apex to brim
         local ribs = 8
-        local brimRadius = VisualsState.HatRadius * 1.35
-        local apexY = 0.42
-        local brimY = -0.32
+        local brimRadius = scale * 0.82
+        local apexY = scale * 0.22
+        local brimY = -scale * 0.08
 
         for i = 1, ribs do
             local angle = ((i - 1) / ribs) * math.pi * 2
@@ -496,10 +528,11 @@ local function createLinedHat(char)
             rib.CanQuery = false
             rib.Massless = true
             rib.CastShadow = false
+            rib.Anchored = false
             rib.Material = Enum.Material.Neon
-            rib.Color = Color3.fromRGB(235, 140, 255)
-            rib.Transparency = 0.15
-            rib.Size = Vector3.new(0.04, 0.04, length)
+            rib.Color = Color3.fromRGB(225, 140, 255)
+            rib.Transparency = 0.2
+            rib.Size = Vector3.new(0.012, 0.012, length)
 
             local ribWeld = Instance.new("Weld")
             ribWeld.Part0 = h
@@ -559,15 +592,15 @@ local function updateChineseHat(entry, char, isLocal)
     if entry.ChineseHatPart then
         local hat = entry.ChineseHatPart
         hat.Color = VisualsState.HatColor
-        local scale = VisualsState.HatRadius * 1.5
+        local scale = math.clamp(VisualsState.HatRadius * 0.72, 0.7, 2.2)
         local mesh = hat:FindFirstChildOfClass("SpecialMesh")
         if mesh then
-            mesh.Scale = Vector3.new(scale, scale * 0.7, scale)
+            mesh.Scale = Vector3.new(scale, scale * 0.36, scale)
         end
 
-        local rotAngle = VisualsState.HatRotate and (tick() * 90 % 360) or 0
-        -- Smoothly positions hat hovering 1.85 studs above head center in RenderStepped!
-        hat.CFrame = head.CFrame * CFrame.new(0, 1.85, 0) * CFrame.Angles(0, math.rad(rotAngle), 0)
+        local rotAngle = VisualsState.HatRotate and (tick() * 75 % 360) or 0
+        -- Gently hovers 0.95 studs above head center (floating subtly right over head/hair)
+        hat.CFrame = head.CFrame * CFrame.new(0, 0.95, 0) * CFrame.Angles(0, math.rad(rotAngle), 0)
     end
 end
 
@@ -591,6 +624,7 @@ local function hidePlayerVisuals(entry)
     entry.CornerContainer.Visible = false
     for _, l in ipairs(entry.Box3DLines) do l.Visible = false end
     entry.HealthBarBg.Visible = false
+    if entry.HpLabel then entry.HpLabel.Visible = false end
     entry.NameLabel.Visible = false
     entry.ToolLabel.Visible = false
     entry.TracerFrame.Visible = false
@@ -764,40 +798,55 @@ local function updatePlayer(entry)
         for _, l in ipairs(entry.Box3DLines) do l.Visible = false end
     end
 
-    -- 2. Health Bar
+    -- 2. Health Bar (sleek 2.5px bar with dynamic HP text when damaged)
     if VisualsState.HealthBar then
         local hpPct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-        entry.HealthBarBg.Position = UDim2.fromOffset(boxLeft - 4, boxTop)
-        entry.HealthBarBg.Size = UDim2.fromOffset(3, boxHeight)
+        entry.HealthBarBg.Position = UDim2.fromOffset(boxLeft - 5, boxTop)
+        entry.HealthBarBg.Size = UDim2.fromOffset(2.5, boxHeight)
         entry.HealthBarBg.Visible = true
 
         entry.HealthBarFill.Size = UDim2.new(1, 0, hpPct, 0)
         entry.HealthBarFill.BackgroundColor3 = Color3.fromHSV(hpPct * 0.33, 0.9, 1)
+
+        if entry.HpLabel then
+            if hum.Health < hum.MaxHealth - 1 then
+                entry.HpLabel.Text = tostring(math.floor(hum.Health))
+                entry.HpLabel.Position = UDim2.fromOffset(boxLeft - 7, boxTop + boxHeight * (1 - hpPct))
+                entry.HpLabel.Visible = true
+            else
+                entry.HpLabel.Visible = false
+            end
+        end
     else
         entry.HealthBarBg.Visible = false
+        if entry.HpLabel then entry.HpLabel.Visible = false end
     end
 
-    -- 3. Name & Distance ESP
+    -- 3. Name & Distance ESP (Sleek RichText formatting)
     if VisualsState.NameESP or VisualsState.DistanceESP then
         local dist = math.floor((root.Position - Camera.CFrame.Position).Magnitude)
+        local nameStr = (VisualsState.NameESP and (plr.DisplayName or plr.Name)) or ""
         local textStr = ""
-        if VisualsState.NameESP then textStr = plr.DisplayName or plr.Name end
-        if VisualsState.DistanceESP then
-            textStr = textStr ~= "" and (textStr .. " [" .. dist .. "m]") or ("[" .. dist .. "m]")
+        if VisualsState.NameESP and VisualsState.DistanceESP then
+            textStr = string.format("%s <font color=\"rgb(180,180,205)\">[%dm]</font>", nameStr, dist)
+        elseif VisualsState.NameESP then
+            textStr = nameStr
+        elseif VisualsState.DistanceESP then
+            textStr = string.format("<font color=\"rgb(180,180,205)\">[%dm]</font>", dist)
         end
         entry.NameLabel.Text = textStr
-        entry.NameLabel.Position = UDim2.fromOffset(boxCenter.X, boxTop - 3)
+        entry.NameLabel.Position = UDim2.fromOffset(boxCenter.X, boxTop - 2)
         entry.NameLabel.Visible = true
     else
         entry.NameLabel.Visible = false
     end
 
-    -- 4. Tool ESP
+    -- 4. Tool ESP (Crisp lavender text)
     if VisualsState.ToolESP then
         local tool = getCharacterTool(char)
-        if tool then
+        if tool and tool ~= "" then
             entry.ToolLabel.Text = tool
-            entry.ToolLabel.Position = UDim2.fromOffset(boxCenter.X, boxBottom + 3)
+            entry.ToolLabel.Position = UDim2.fromOffset(boxCenter.X, boxBottom + 2)
             entry.ToolLabel.Visible = true
         else
             entry.ToolLabel.Visible = false
