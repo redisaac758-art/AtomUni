@@ -985,7 +985,7 @@ local pVisuals = Pages["Visuals"]
 local _, bPlayerESP = createCard(pVisuals, "Player ESP")
 createToggle(bPlayerESP, "Enable ESP", false)
 createToggle(bPlayerESP, "Box ESP", false)
-createDropdown(bPlayerESP, "Box Style", { "2D Box", "Corner Box" }, "2D Box")
+createDropdown(bPlayerESP, "Box Style", { "2D Box", "Corner Box", "3D Box" }, "2D Box")
 createToggle(bPlayerESP, "Name ESP", false)
 createToggle(bPlayerESP, "Distance ESP", false)
 createToggle(bPlayerESP, "Health Bar", false)
