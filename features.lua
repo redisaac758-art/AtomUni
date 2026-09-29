@@ -76,25 +76,46 @@ end
 ensureScreenGuiContainer()
 
 --//==================================================
---// FOV CIRCLE (2D SCREENGUI - CROSS-PLATFORM PC & MOBILE)
+--// FOV CIRCLE (SAME FRAME HOLDER METHOD AS ESP - CROSS-PLATFORM)
 --//==================================================
 
-local FOVCircleFrame = nil
+local FOVHolder = nil      -- full-viewport Frame (same as ESP holder)
+local FOVCircleFrame = nil -- the actual circle Frame inside holder
 local FOVCircleStroke = nil
-local FOVCircleOutline = nil
+local MouseFOVPos = Vector2.new(0, 0)   -- updated each frame for Mouse aim mode
 
 local function ensureFOVCircle()
     local container = ensureScreenGuiContainer()
     if not container then return nil end
-    if FOVCircleFrame and FOVCircleFrame.Parent then return FOVCircleFrame end
 
+    -- If holder is still valid, return existing circle
+    if FOVHolder and FOVHolder.Parent and FOVCircleFrame and FOVCircleFrame.Parent then
+        return FOVCircleFrame
+    end
+
+    -- Destroy stale instances if they lost parent
+    if FOVHolder then pcall(function() FOVHolder:Destroy() end) end
+
+    -- Full-viewport transparent Frame holder (EXACT same pattern as ESP holder)
+    FOVHolder = Instance.new("Frame")
+    FOVHolder.Name = "AtomwareFOVHolder"
+    FOVHolder.Size = UDim2.fromScale(1, 1)
+    FOVHolder.Position = UDim2.fromScale(0, 0)
+    FOVHolder.BackgroundTransparency = 1
+    FOVHolder.BorderSizePixel = 0
+    FOVHolder.ClipsDescendants = false
+    FOVHolder.ZIndex = 1
+    pcall(function() FOVHolder.Parent = container end)
+
+    -- Circle Frame inside the holder
     FOVCircleFrame = Instance.new("Frame")
     FOVCircleFrame.Name = "AtomwareFOVCircle"
     FOVCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     FOVCircleFrame.BorderSizePixel = 0
+    FOVCircleFrame.BackgroundTransparency = 1
     FOVCircleFrame.Visible = false
-    FOVCircleFrame.ZIndex = 1
-    FOVCircleFrame.Parent = container
+    FOVCircleFrame.ZIndex = 2
+    FOVCircleFrame.Parent = FOVHolder
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(1, 0)
@@ -103,30 +124,45 @@ local function ensureFOVCircle()
     FOVCircleStroke = Instance.new("UIStroke")
     FOVCircleStroke.Name = "FOVStroke"
     FOVCircleStroke.Thickness = 1.5
-    FOVCircleStroke.Color = VisualsState and VisualsState.FOVColor or Color3.fromRGB(157, 48, 255)
-    FOVCircleStroke.Transparency = VisualsState and VisualsState.FOVTransparency or 0.2
+    FOVCircleStroke.Color = Color3.fromRGB(157, 48, 255)
+    FOVCircleStroke.Transparency = 0.2
     FOVCircleStroke.Parent = FOVCircleFrame
 
-    FOVCircleOutline = Instance.new("UIStroke")
-    FOVCircleOutline.Name = "FOVOutline"
-    FOVCircleOutline.Thickness = 1.0
-    FOVCircleOutline.Color = Color3.fromRGB(0, 0, 0)
-    FOVCircleOutline.Transparency = 0.5
-    FOVCircleOutline.Parent = FOVCircleFrame
+    -- Thin black outline for contrast
+    local outline = Instance.new("UIStroke")
+    outline.Name = "FOVOutline"
+    outline.Thickness = 1.0
+    outline.Color = Color3.fromRGB(0, 0, 0)
+    outline.Transparency = 0.55
+    -- Note: Only one UIStroke can be active per Frame; outline goes into a wrapper Frame
+    -- So we skip it to avoid conflict—single-stroke is clean enough
 
     return FOVCircleFrame
+end
+
+local function getAimReferencePoint()
+    if VisualsState and VisualsState.AimType == "Mouse/Touch Aim" then
+        local mousePos = UserInputService:GetMouseLocation()
+        return Vector2.new(mousePos.X, mousePos.Y)
+    else
+        local vp = Camera.ViewportSize
+        return Vector2.new(vp.X / 2, vp.Y / 2)
+    end
 end
 
 local function updateFOVCircle()
     if VisualsState.FOVEnabled then
         ensureFOVCircle()
         if FOVCircleFrame then
-            local vp = Camera.ViewportSize
             local rad = VisualsState.FOVRadius
+            local center = getAimReferencePoint()
+
             FOVCircleFrame.Size = UDim2.fromOffset(rad * 2, rad * 2)
-            FOVCircleFrame.Position = UDim2.fromOffset(vp.X / 2, vp.Y / 2)
+            FOVCircleFrame.Position = UDim2.fromOffset(center.X, center.Y)
             FOVCircleFrame.BackgroundColor3 = VisualsState.FOVColor
-            FOVCircleFrame.BackgroundTransparency = VisualsState.FOVFilled and (1 - VisualsState.FOVTransparency) or 1
+            FOVCircleFrame.BackgroundTransparency = VisualsState.FOVFilled
+                and math.clamp(VisualsState.FOVTransparency + 0.5, 0, 1)
+                or 1
             if FOVCircleStroke then
                 FOVCircleStroke.Color = VisualsState.FOVColor
                 FOVCircleStroke.Transparency = VisualsState.FOVTransparency
@@ -179,6 +215,7 @@ local VisualsState = {
     AimbotEnabled       = false,
     AimActive           = false,
     AimLock             = false,
+    AimType             = "Camera Aim",   -- "Camera Aim" | "Mouse/Touch Aim"
     TargetPart          = "Head",
     AimbotSmoothness    = 5,
     AimKey              = Enum.UserInputType.MouseButton2,
@@ -191,6 +228,10 @@ local VisualsState = {
     FOVColor            = Color3.fromRGB(157, 48, 255),
     FOVFilled           = false,
     FOVTransparency     = 0.2,
+
+    -- Aim Toggle Button appearance (mobile)
+    AimToggleSize       = 54,         -- pixels
+    AimToggleShape      = "Rounded",  -- "Rounded" | "Circle" | "Square"
 
     -- Hitbox Expander
     HitboxEnabled       = false,
@@ -414,7 +455,7 @@ end
 
 local function getBestAimbotTarget()
     if not VisualsState.AimbotEnabled then return nil end
-    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local refPt = getAimReferencePoint()
     local bestTarget = nil
     local bestDist = VisualsState.FOVRadius
 
@@ -441,7 +482,7 @@ local function getBestAimbotTarget()
                         local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
                         if screenPos.Z > 0 then
                             local screenPt = Vector2.new(screenPos.X, screenPos.Y)
-                            local dist = (screenPt - screenCenter).Magnitude
+                            local dist = (screenPt - refPt).Magnitude
                             if dist <= bestDist then
                                 local isVisible = true
                                 if VisualsState.WallCheck then
@@ -484,12 +525,40 @@ local function updateAimbot()
     if isAiming then
         local targetPart = getBestAimbotTarget()
         if targetPart then
-            local targetCF = CFrame.lookAt(Camera.CFrame.Position, targetPart.Position)
-            if VisualsState.AimbotSmoothness > 1 then
-                local alpha = math.clamp(1 / VisualsState.AimbotSmoothness, 0.05, 1)
-                Camera.CFrame = Camera.CFrame:Lerp(targetCF, alpha)
+            if VisualsState.AimType == "Mouse/Touch Aim" then
+                -- Follows mouse cursor / touch in 3rd person
+                local targetScreen, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen and targetScreen.Z > 0 then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local deltaX = targetScreen.X - mousePos.X
+                    local deltaY = targetScreen.Y - mousePos.Y
+
+                    if type(mousemoverel) == "function" then
+                        local smooth = math.max(VisualsState.AimbotSmoothness, 1)
+                        mousemoverel(deltaX / smooth, deltaY / smooth)
+                    else
+                        local rayMouse = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+                        local rayTarget = (targetPart.Position - Camera.CFrame.Position).Unit
+                        local cross = rayMouse.Direction:Cross(rayTarget)
+                        local dot = math.clamp(rayMouse.Direction:Dot(rayTarget), -1, 1)
+                        local angle = math.acos(dot)
+                        if cross.Magnitude > 1e-4 and angle > 1e-4 then
+                            local rotAxis = cross.Unit
+                            local smooth = math.max(VisualsState.AimbotSmoothness, 1)
+                            local stepAngle = angle / smooth
+                            Camera.CFrame = CFrame.fromAxisAngle(rotAxis, stepAngle) * Camera.CFrame
+                        end
+                    end
+                end
             else
-                Camera.CFrame = targetCF
+                -- "Camera Aim": Follows camera
+                local targetCF = CFrame.lookAt(Camera.CFrame.Position, targetPart.Position)
+                if VisualsState.AimbotSmoothness > 1 then
+                    local alpha = math.clamp(1 / VisualsState.AimbotSmoothness, 0.05, 1)
+                    Camera.CFrame = Camera.CFrame:Lerp(targetCF, alpha)
+                else
+                    Camera.CFrame = targetCF
+                end
             end
         end
     end
@@ -510,9 +579,62 @@ local function getCharacterRigType(character)
     return "R6"
 end
 
-local function getCharacterTool(character)
-    local tool = character:FindFirstChildOfClass("Tool")
-    return tool and tool.Name or nil
+local function getCharacterTool(character, plr)
+    if not character then return nil end
+
+    -- 1. Direct Tool child of Character (Standard Roblox equipped tool)
+    for _, child in ipairs(character:GetChildren()) do
+        if child:IsA("Tool") then
+            return child.Name
+        end
+    end
+
+    -- 2. Look for Tool in descendants (some games wrap tools in a Model/Folder inside character)
+    local toolDesc = character:FindFirstChildOfClass("Tool")
+    if toolDesc then
+        return toolDesc.Name
+    end
+
+    -- 3. Check for weapons/tools welded to character hands/arms
+    local hands = {
+        character:FindFirstChild("RightHand"),
+        character:FindFirstChild("Right Arm"),
+        character:FindFirstChild("LeftHand"),
+        character:FindFirstChild("Left Arm"),
+    }
+    for _, hand in ipairs(hands) do
+        if hand then
+            for _, child in ipairs(hand:GetChildren()) do
+                if child:IsA("Weld") or child:IsA("Motor6D") or child:IsA("WeldConstraint") then
+                    local p1 = child.Part1
+                    if p1 and p1 ~= hand then
+                        local model = p1:FindFirstAncestorOfClass("Model")
+                        if model and model ~= character and model.Parent ~= character then
+                            return model.Name
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 4. Check for equipped item attributes or ValueObjects
+    for _, name in ipairs({ "EquippedTool", "EquippedWeapon", "CurrentWeapon", "HeldItem", "Equipped", "Tool", "Weapon" }) do
+        local val = character:FindFirstChild(name)
+        if val then
+            if val:IsA("StringValue") and val.Value ~= "" then
+                return val.Value
+            elseif val:IsA("ObjectValue") and val.Value then
+                return val.Value.Name
+            end
+        end
+        local attr = character:GetAttribute(name)
+        if attr and tostring(attr) ~= "" then
+            return tostring(attr)
+        end
+    end
+
+    return nil
 end
 
 local function getCharacterRoot(character)
@@ -660,13 +782,12 @@ local function createPlayerESP(player)
     hpLabel.ZIndex = 5
     hpLabel.Parent = holder
 
-    -- 5. Name & Distance Label (RichText enabled, crisp Gothic bold)
+    -- 5. Name Label (TOP of the box)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "NameLabel"
     nameLabel.AnchorPoint = Vector2.new(0.5, 1)
     nameLabel.Size = UDim2.fromOffset(260, 16)
     nameLabel.BackgroundTransparency = 1
-    nameLabel.RichText = true
     nameLabel.Font = Enum.Font.GothamBold
     nameLabel.TextSize = 12
     nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -678,7 +799,24 @@ local function createPlayerESP(player)
     nameLabel.ZIndex = 5
     nameLabel.Parent = holder
 
-    -- 6. Tool Label
+    -- 6. Distance Label (BOTTOM of the box)
+    local distanceLabel = Instance.new("TextLabel")
+    distanceLabel.Name = "DistanceLabel"
+    distanceLabel.AnchorPoint = Vector2.new(0.5, 0)
+    distanceLabel.Size = UDim2.fromOffset(260, 14)
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.Font = Enum.Font.GothamMedium
+    distanceLabel.TextSize = 11
+    distanceLabel.TextColor3 = Color3.fromRGB(200, 195, 220)
+    distanceLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    distanceLabel.TextStrokeTransparency = 0.25
+    distanceLabel.TextXAlignment = Enum.TextXAlignment.Center
+    distanceLabel.TextYAlignment = Enum.TextYAlignment.Center
+    distanceLabel.Visible = false
+    distanceLabel.ZIndex = 5
+    distanceLabel.Parent = holder
+
+    -- 7. Tool Label (BOTTOM of the box, below distance)
     local toolLabel = Instance.new("TextLabel")
     toolLabel.Name = "ToolLabel"
     toolLabel.AnchorPoint = Vector2.new(0.5, 0)
@@ -695,7 +833,7 @@ local function createPlayerESP(player)
     toolLabel.ZIndex = 5
     toolLabel.Parent = holder
 
-    -- 7. Tracer Line
+    -- 8. Tracer Line
     local tracerFrame = Instance.new("Frame")
     tracerFrame.Name = "Tracer"
     tracerFrame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -717,6 +855,7 @@ local function createPlayerESP(player)
         HealthBarFill = healthBarFill,
         HpLabel = hpLabel,
         NameLabel = nameLabel,
+        DistanceLabel = distanceLabel,
         ToolLabel = toolLabel,
         TracerFrame = tracerFrame,
         ChineseHatPart = nil,
@@ -878,6 +1017,7 @@ local function hidePlayerVisuals(entry)
     entry.HealthBarBg.Visible = false
     if entry.HpLabel then entry.HpLabel.Visible = false end
     entry.NameLabel.Visible = false
+    if entry.DistanceLabel then entry.DistanceLabel.Visible = false end
     entry.ToolLabel.Visible = false
     entry.TracerFrame.Visible = false
 end
@@ -1074,31 +1214,36 @@ local function updatePlayer(entry)
         if entry.HpLabel then entry.HpLabel.Visible = false end
     end
 
-    -- 3. Name & Distance ESP (Sleek RichText formatting)
-    if VisualsState.NameESP or VisualsState.DistanceESP then
-        local dist = math.floor((root.Position - Camera.CFrame.Position).Magnitude)
-        local nameStr = (VisualsState.NameESP and (plr.DisplayName or plr.Name)) or ""
-        local textStr = ""
-        if VisualsState.NameESP and VisualsState.DistanceESP then
-            textStr = string.format("%s <font color=\"rgb(180,180,205)\">[%dm]</font>", nameStr, dist)
-        elseif VisualsState.NameESP then
-            textStr = nameStr
-        elseif VisualsState.DistanceESP then
-            textStr = string.format("<font color=\"rgb(180,180,205)\">[%dm]</font>", dist)
-        end
-        entry.NameLabel.Text = textStr
+    -- 3. Name ESP (TOP of the box)
+    if VisualsState.NameESP then
+        local nameStr = plr.DisplayName or plr.Name
+        entry.NameLabel.Text = nameStr
         entry.NameLabel.Position = UDim2.fromOffset(boxCenter.X, boxTop - 2)
         entry.NameLabel.Visible = true
     else
         entry.NameLabel.Visible = false
     end
 
-    -- 4. Tool ESP (Crisp lavender text)
+    -- 4. Distance ESP (BOTTOM of the box)
+    local bottomOffset = 2
+    if VisualsState.DistanceESP then
+        local dist = math.floor((root.Position - Camera.CFrame.Position).Magnitude)
+        if entry.DistanceLabel then
+            entry.DistanceLabel.Text = string.format("[%dm]", dist)
+            entry.DistanceLabel.Position = UDim2.fromOffset(boxCenter.X, boxBottom + bottomOffset)
+            entry.DistanceLabel.Visible = true
+        end
+        bottomOffset = bottomOffset + 14
+    else
+        if entry.DistanceLabel then entry.DistanceLabel.Visible = false end
+    end
+
+    -- 5. Tool ESP (BOTTOM of the box, stacked below distance if both enabled)
     if VisualsState.ToolESP then
-        local tool = getCharacterTool(char)
+        local tool = getCharacterTool(char, plr)
         if tool and tool ~= "" then
             entry.ToolLabel.Text = tool
-            entry.ToolLabel.Position = UDim2.fromOffset(boxCenter.X, boxBottom + 2)
+            entry.ToolLabel.Position = UDim2.fromOffset(boxCenter.X, boxBottom + bottomOffset)
             entry.ToolLabel.Visible = true
         else
             entry.ToolLabel.Visible = false
@@ -1281,6 +1426,7 @@ bindToggle("Rotate Hat", function(v) VisualsState.HatRotate = v end)
 -- Combat / Aimbot
 bindToggle("Enable Aimbot", function(v) VisualsState.AimbotEnabled = v end)
 bindToggle("Aim Lock", function(v) VisualsState.AimLock = v end)
+bindDropdown("Aim Type", function(v) VisualsState.AimType = v end)
 bindDropdown("Target Part", function(v) VisualsState.TargetPart = v end)
 bindSlider("Smoothness", function(v) VisualsState.AimbotSmoothness = v end)
 bindToggle("Wall Check", function(v) VisualsState.WallCheck = v end)

@@ -370,7 +370,7 @@ local function setMobileControlScale(value)
         MobileToggleLockBtn.Position = UDim2.fromOffset(toggleSize + gap + lockSize / 2, dockHeight / 2)
     end
     if MobileAimDock and MobileAimBtn then
-        local aimSize = 54 * mobileControlScale
+        local aimSize = (currentAimButtonSize or 54) * mobileControlScale
         MobileAimDock.Size = UDim2.fromOffset(aimSize, aimSize)
         MobileAimBtn.Size = UDim2.fromOffset(aimSize, aimSize)
     end
@@ -437,8 +437,11 @@ end
 
 local MobileAimDock = nil
 local MobileAimBtn = nil
+local MobileAimCorner = nil
 local mobileAimActive = false
 local holdToAim = false
+local currentAimButtonSize = 54
+local currentAimButtonShape = "Rounded"
 
 local function setMobileAimState(active)
     mobileAimActive = active
@@ -465,6 +468,28 @@ local function setHoldToAim(v)
     end
 end
 
+local function setAimButtonShape(shape)
+    currentAimButtonShape = shape
+    if MobileAimCorner then
+        if shape == "Circle" then
+            MobileAimCorner.CornerRadius = UDim.new(1, 0)
+        elseif shape == "Square" then
+            MobileAimCorner.CornerRadius = UDim.new(0, 0)
+        else -- "Rounded"
+            MobileAimCorner.CornerRadius = UDim.new(0, 16)
+        end
+    end
+end
+
+local function setAimButtonSize(sz)
+    currentAimButtonSize = sz
+    if MobileAimDock and MobileAimBtn then
+        local effSize = sz * (mobileControlScale or 1)
+        MobileAimDock.Size = UDim2.fromOffset(effSize, effSize)
+        MobileAimBtn.Size = UDim2.fromOffset(effSize, effSize)
+    end
+end
+
 local function makeFloatingAimButton()
     local dock = Instance.new("Frame")
     dock.Name = "MobileAimDock"
@@ -473,10 +498,11 @@ local function makeFloatingAimButton()
     dock.ZIndex = 150
     dock.Parent = ScreenGui
 
+    local effSize = currentAimButtonSize * (mobileControlScale or 1)
     local btn = Instance.new("TextButton")
     btn.Name = "MobileAimBtn"
     btn.AnchorPoint = Vector2.new(0.5, 0.5)
-    btn.Size = UDim2.fromOffset(54, 54)
+    btn.Size = UDim2.fromOffset(effSize, effSize)
     btn.BackgroundColor3 = THEME.Header
     btn.Text = "AIM"
     btn.TextColor3 = THEME.TextMuted
@@ -485,8 +511,9 @@ local function makeFloatingAimButton()
     btn.AutoButtonColor = false
     btn.ZIndex = 151
     btn.Parent = dock
-    corner(btn, 16)
+    MobileAimCorner = corner(btn, 16)
     stroke(btn, THEME.Accent, 1.5)
+    setAimButtonShape(currentAimButtonShape)
 
     MobileAimDock = dock
     MobileAimBtn = btn
@@ -1427,6 +1454,7 @@ local lCombat, rCombat = getCols("Combat")
 local _, bAimbot = createCard(lCombat, "Aimbot")
 createToggle(bAimbot, "Enable Aimbot", false)
 createToggle(bAimbot, "Aim Lock", false)
+createDropdown(bAimbot, "Aim Type", { "Camera Aim", "Mouse/Touch Aim" }, "Camera Aim")
 createDropdown(bAimbot, "Target Part", { "Head", "Torso", "HumanoidRootPart" }, "Head")
 createSlider(bAimbot, "Smoothness", 1, 20, 5, 1, "")
 createToggle(bAimbot, "Wall Check", false)
@@ -1479,6 +1507,10 @@ local lSettings, rSettings = getCols("Settings")
 local _, bMobileSet = createCard(lSettings, "Mobile Controls")
 _G.OnSlider("UI Toggle Size", setMobileControlScale)
 createSlider(bMobileSet, "UI Toggle Size", 0.92, 1.5, 1, 0.1, "x")
+_G.OnSlider("Aim Button Size", setAimButtonSize)
+createSlider(bMobileSet, "Aim Button Size", 36, 80, 54, 2, "px")
+_G.OnDropdown("Aim Button Shape", setAimButtonShape)
+createDropdown(bMobileSet, "Aim Button Shape", { "Rounded", "Circle", "Square" }, "Rounded")
 
 -- RIGHT COLUMN
 local _, bClose = createCard(rSettings, "Manage UI")
@@ -1491,9 +1523,6 @@ end)
 createToggle(bClose, "Show FPS Counter", false, function(v)
     if _G.AtomwareConfig then _G.AtomwareConfig:SetFPSCounterVisible(v) end
 end)
-createToggle(bClose, "Raid Alerts", false)
-createToggle(bClose, "Airdrop Alerts", false)
-createSlider(bClose, "Alert Duration", 1, 10, 3, 1, "s")
 createColorPicker(bClose, "Watermark Color", Color3.fromRGB(205, 104, 255), function(v)
     if _G.AtomwareConfig then _G.AtomwareConfig:SetWatermarkColor(v) end
 end)
