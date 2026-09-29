@@ -42,33 +42,53 @@ end))
 --// GUI PARENT RESOLVER (CROSS-PLATFORM IPAD / PC)
 --//==================================================
 
-local function getGuiParent()
+local function getBillboardParent()
+    local ok, cg = pcall(function() return CoreGui end)
+    if ok and cg then
+        local pOk = pcall(function()
+            local test = Instance.new("Folder")
+            test.Parent = cg
+            test:Destroy()
+        end)
+        if pOk then return cg end
+    end
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+    if pg then return pg end
+    return Workspace
+end
+
+local function getScreenGuiParent()
     if type(gethui) == "function" then
         local ok, h = pcall(gethui)
         if ok and h then return h end
     end
-    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
-    if playerGui then return playerGui end
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+    if pg then return pg end
     return CoreGui
 end
 
 -- ScreenGui for 2D screen elements (Tracers)
 local ScreenGuiContainer = nil
-pcall(function()
-    local parent = getGuiParent()
-    local existing = parent:FindFirstChild("AtomwareScreenVisuals")
-    if existing then existing:Destroy() end
+local function ensureScreenGuiContainer()
+    if ScreenGuiContainer and ScreenGuiContainer.Parent then return ScreenGuiContainer end
+    pcall(function()
+        local parent = getScreenGuiParent()
+        local existing = parent:FindFirstChild("AtomwareScreenVisuals")
+        if existing then existing:Destroy() end
 
-    ScreenGuiContainer = Instance.new("ScreenGui")
-    ScreenGuiContainer.Name = "AtomwareScreenVisuals"
-    ScreenGuiContainer.ResetOnSpawn = false
-    ScreenGuiContainer.IgnoreGuiInset = true
-    ScreenGuiContainer.DisplayOrder = 9999
-    ScreenGuiContainer.Parent = parent
-    if _G.AtomwareCleanup and type(_G.AtomwareCleanup.TrackInstance) == "function" then
-        _G.AtomwareCleanup:TrackInstance(ScreenGuiContainer)
-    end
-end)
+        ScreenGuiContainer = Instance.new("ScreenGui")
+        ScreenGuiContainer.Name = "AtomwareScreenVisuals"
+        ScreenGuiContainer.ResetOnSpawn = false
+        ScreenGuiContainer.IgnoreGuiInset = true
+        ScreenGuiContainer.DisplayOrder = 9999
+        ScreenGuiContainer.Parent = parent
+        if _G.AtomwareCleanup and type(_G.AtomwareCleanup.TrackInstance) == "function" then
+            _G.AtomwareCleanup:TrackInstance(ScreenGuiContainer)
+        end
+    end)
+    return ScreenGuiContainer
+end
+ensureScreenGuiContainer()
 
 --//==================================================
 --// CONFIGURATION STATE
@@ -272,46 +292,47 @@ end
 local ESPHolders = {}
 
 local function createPlayerESP(player)
-    local parent = getGuiParent()
+    local parent = getBillboardParent()
 
-    -- Generous Billboard canvas (7 x 9.5 studs) so all labels, boxes, and bars are 100% inside canvas and never culled
+    -- Bounding Billboard canvas (5.6 x 7.8 studs) covering player body, name, tool, and health
+    -- Sits at root part; all labels and bars remain 100% inside canvas and are never culled by engine
     local bbg = Instance.new("BillboardGui")
     bbg.Name = "AtomwarePlayerESP_" .. player.Name
     bbg.AlwaysOnTop = true
     bbg.ResetOnSpawn = false
     bbg.ClipsDescendants = false
-    bbg.Size = UDim2.new(6.8, 0, 9.2, 0)
+    bbg.Size = UDim2.new(5.6, 0, 7.8, 0)
     bbg.StudsOffset = Vector3.new(0, 0, 0)
-    bbg.MaxDistance = 2500
+    bbg.MaxDistance = 3500
     bbg.LightInfluence = 0
     bbg.Enabled = false
-    bbg.Parent = parent
+    pcall(function() bbg.Parent = parent end)
 
-    -- Center Box Container (relative inside Billboard canvas)
-    local mainBox = Instance.new("Frame")
-    mainBox.Name = "MainBox"
-    mainBox.AnchorPoint = Vector2.new(0.5, 0.5)
-    mainBox.Position = UDim2.fromScale(0.5, 0.5)
-    mainBox.Size = UDim2.new(0.65, 0, 0.72, 0)
-    mainBox.BackgroundTransparency = 1
-    mainBox.BorderSizePixel = 0
-    mainBox.Parent = bbg
+    -- 1. Main 2D Box Frame (encloses the body in the center of canvas)
+    local boxFrame = Instance.new("Frame")
+    boxFrame.Name = "BoxFrame"
+    boxFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    boxFrame.Position = UDim2.fromScale(0.5, 0.5)
+    boxFrame.Size = UDim2.new(0.70, 0, 0.70, 0)
+    boxFrame.BackgroundTransparency = 1
+    boxFrame.BorderSizePixel = 0
+    boxFrame.Visible = false
+    boxFrame.Parent = bbg
 
-    -- 2D Box Stroke
     local boxStroke = Instance.new("UIStroke")
     boxStroke.Name = "BoxStroke"
     boxStroke.Color = VisualsState.ESPColor
     boxStroke.Thickness = 1.5
     boxStroke.LineJoinMode = Enum.LineJoinMode.Miter
-    boxStroke.Parent = mainBox
+    boxStroke.Parent = boxFrame
 
-    -- Corner Box Container (8 corner bracket lines inside mainBox)
+    -- 2. Corner Box Container (8 corner bracket lines inside boxFrame)
     local cornerContainer = Instance.new("Frame")
     cornerContainer.Name = "CornerContainer"
     cornerContainer.BackgroundTransparency = 1
     cornerContainer.Size = UDim2.fromScale(1, 1)
     cornerContainer.Visible = false
-    cornerContainer.Parent = mainBox
+    cornerContainer.Parent = boxFrame
 
     local cornerBrackets = {}
     local cornerPositions = {
@@ -335,16 +356,17 @@ local function createPlayerESP(player)
         table.insert(cornerBrackets, line)
     end
 
-    -- Health Bar (Attached directly to left of mainBox, inside canvas)
+    -- 3. Health Bar (Positioned directly beside boxFrame on the left: X = 0.12, Y = 0.5)
+    -- Direct child of bbg so it never hides when Box ESP is disabled or 3D Box is chosen
     local healthBarBg = Instance.new("Frame")
     healthBarBg.Name = "HealthBarBg"
-    healthBarBg.AnchorPoint = Vector2.new(1, 0)
-    healthBarBg.Position = UDim2.new(0, -5, 0, 0)
-    healthBarBg.Size = UDim2.new(0, 3, 1, 0)
+    healthBarBg.AnchorPoint = Vector2.new(1, 0.5)
+    healthBarBg.Position = UDim2.new(0.12, 0, 0.5, 0)
+    healthBarBg.Size = UDim2.new(0, 3, 0.70, 0)
     healthBarBg.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
     healthBarBg.BorderSizePixel = 0
     healthBarBg.Visible = false
-    healthBarBg.Parent = mainBox
+    healthBarBg.Parent = bbg
 
     local healthStroke = Instance.new("UIStroke")
     healthStroke.Color = Color3.fromRGB(0, 0, 0)
@@ -360,75 +382,84 @@ local function createPlayerESP(player)
     healthBarFill.BorderSizePixel = 0
     healthBarFill.Parent = healthBarBg
 
-    -- Name & Distance Label (Positioned directly above mainBox, inside canvas)
+    -- 4. Name & Distance Label (Direct child of bbg, positioned in the top margin: Y = 0.14)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "NameLabel"
     nameLabel.AnchorPoint = Vector2.new(0.5, 1)
-    nameLabel.Position = UDim2.new(0.5, 0, 0, -4)
-    nameLabel.Size = UDim2.new(2.5, 0, 0, 18)
+    nameLabel.Position = UDim2.new(0.5, 0, 0.14, 0)
+    nameLabel.Size = UDim2.new(1.0, 0, 0.13, 0)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 13
     nameLabel.TextColor3 = Color3.fromRGB(245, 241, 255)
     nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextScaled = true
     nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+    nameLabel.TextYAlignment = Enum.TextYAlignment.Center
     nameLabel.Visible = false
-    nameLabel.Parent = mainBox
+    nameLabel.Parent = bbg
 
-    -- Tool Label (Positioned directly below mainBox, inside canvas)
+    local nameConstraint = Instance.new("UITextSizeConstraint")
+    nameConstraint.MinTextSize = 9
+    nameConstraint.MaxTextSize = 14
+    nameConstraint.Parent = nameLabel
+
+    -- 5. Tool Label (Direct child of bbg, positioned in the bottom margin: Y = 0.86)
     local toolLabel = Instance.new("TextLabel")
     toolLabel.Name = "ToolLabel"
     toolLabel.AnchorPoint = Vector2.new(0.5, 0)
-    toolLabel.Position = UDim2.new(0.5, 0, 1, 4)
-    toolLabel.Size = UDim2.new(2.5, 0, 0, 16)
+    toolLabel.Position = UDim2.new(0.5, 0, 0.86, 0)
+    toolLabel.Size = UDim2.new(1.0, 0, 0.12, 0)
     toolLabel.BackgroundTransparency = 1
     toolLabel.Font = Enum.Font.GothamMedium
-    toolLabel.TextSize = 12
     toolLabel.TextColor3 = Color3.fromRGB(205, 104, 255)
     toolLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     toolLabel.TextStrokeTransparency = 0
+    toolLabel.TextScaled = true
     toolLabel.TextXAlignment = Enum.TextXAlignment.Center
+    toolLabel.TextYAlignment = Enum.TextYAlignment.Center
     toolLabel.Visible = false
-    toolLabel.Parent = mainBox
+    toolLabel.Parent = bbg
 
-    -- 3D Bounding Box (SelectionBox + invisible bounding anchor)
-    local box3DPart = Instance.new("Part")
-    box3DPart.Name = "Atomware3DBoxAnchor"
-    box3DPart.CanCollide = false
-    box3DPart.CanTouch = false
-    box3DPart.CanQuery = false
-    box3DPart.Massless = true
-    box3DPart.CastShadow = false
-    box3DPart.Transparency = 1
-    box3DPart.Size = Vector3.new(3.8, 5.4, 2.8)
+    local toolConstraint = Instance.new("UITextSizeConstraint")
+    toolConstraint.MinTextSize = 8
+    toolConstraint.MaxTextSize = 12
+    toolConstraint.Parent = toolLabel
 
+    -- 6. 3D Bounding Box (Native SelectionBox with subtle see-through faces)
     local selectionBox = Instance.new("SelectionBox")
     selectionBox.Name = "AtomwareSelectionBox"
     selectionBox.AlwaysOnTop = true
     selectionBox.LineThickness = 0.04
     selectionBox.Color3 = VisualsState.ESPColor
     selectionBox.SurfaceColor3 = VisualsState.ESPColor
-    selectionBox.SurfaceTransparency = 1
+    selectionBox.SurfaceTransparency = 0.92
     selectionBox.Visible = false
-    selectionBox.Adornee = box3DPart
-    selectionBox.Parent = parent
+    selectionBox.Adornee = nil
 
-    -- Tracer Line (ScreenGui Frame)
+    pcall(function()
+        selectionBox.Parent = CoreGui
+    end)
+    if not selectionBox.Parent then
+        pcall(function() selectionBox.Parent = Workspace.CurrentCamera end)
+    end
+
+    -- 7. Tracer Line (ScreenGui Frame)
     local tracerFrame = nil
-    if ScreenGuiContainer then
+    local container = ensureScreenGuiContainer()
+    if container then
         tracerFrame = Instance.new("Frame")
         tracerFrame.AnchorPoint = Vector2.new(0.5, 0.5)
         tracerFrame.BorderSizePixel = 0
         tracerFrame.BackgroundColor3 = VisualsState.ESPColor
         tracerFrame.Visible = false
-        tracerFrame.Parent = ScreenGuiContainer
+        pcall(function() tracerFrame.Parent = container end)
     end
 
     return {
         Player = player,
         Billboard = bbg,
-        MainBox = mainBox,
+        BoxFrame = boxFrame,
         BoxStroke = boxStroke,
         CornerContainer = cornerContainer,
         CornerBrackets = cornerBrackets,
@@ -436,7 +467,6 @@ local function createPlayerESP(player)
         HealthBarFill = healthBarFill,
         NameLabel = nameLabel,
         ToolLabel = toolLabel,
-        Box3DPart = box3DPart,
         SelectionBox = selectionBox,
         TracerFrame = tracerFrame,
         ChineseHatPart = nil,
@@ -448,7 +478,6 @@ local function removePlayerESP(entry)
     if not entry then return end
     if entry.Billboard then pcall(function() entry.Billboard:Destroy() end) end
     if entry.SelectionBox then pcall(function() entry.SelectionBox:Destroy() end) end
-    if entry.Box3DPart then pcall(function() entry.Box3DPart:Destroy() end) end
     if entry.TracerFrame then pcall(function() entry.TracerFrame:Destroy() end) end
     if entry.ChineseHatPart then pcall(function() entry.ChineseHatPart:Destroy() end) end
     table.clear(entry)
@@ -459,71 +488,77 @@ end
 --//==================================================
 
 local function createLinedHat(char, head)
-    local hat = Instance.new("Part")
-    hat.Name = "AtomwareChineseHat"
-    hat.CanCollide = false
-    hat.CanTouch = false
-    hat.CanQuery = false
-    hat.Massless = true
-    hat.CastShadow = false
-    hat.Material = Enum.Material.ForceField -- Animated see-through energy purple gradient
-    hat.Color = VisualsState.HatColor
-    hat.Transparency = 0.38
-    hat.Size = Vector3.new(0.2, 0.2, 0.2)
+    local ok, hat, weld = pcall(function()
+        local h = Instance.new("Part")
+        h.Name = "AtomwareChineseHat"
+        h.CanCollide = false
+        h.CanTouch = false
+        h.CanQuery = false
+        h.Massless = true
+        h.CastShadow = false
+        h.Material = Enum.Material.ForceField -- Animated see-through energy purple gradient
+        h.Color = VisualsState.HatColor
+        h.Transparency = 0.35
+        h.Size = Vector3.new(0.2, 0.2, 0.2)
 
-    local mesh = Instance.new("SpecialMesh")
-    mesh.MeshType = Enum.MeshType.FileMesh
-    mesh.MeshId = "rbxassetid://1778999" -- Asian coolie cone hat
-    local scale = VisualsState.HatRadius * 1.5
-    mesh.Scale = Vector3.new(scale, scale * 0.65, scale)
-    mesh.Parent = hat
+        local mesh = Instance.new("SpecialMesh")
+        mesh.MeshType = Enum.MeshType.FileMesh
+        mesh.MeshId = "rbxassetid://1778999" -- Asian coolie cone hat
+        local scale = VisualsState.HatRadius * 1.5
+        mesh.Scale = Vector3.new(scale, scale * 0.65, scale)
+        mesh.Parent = h
 
-    -- Glowing neon rib lines radiating from apex to brim ("lined" wireframe coolie effect)
-    local ribs = 8
-    local brimRadius = VisualsState.HatRadius * 1.4
-    local apexY = 0.45
-    local brimY = -0.35
+        -- Glowing neon rib lines radiating from apex to brim ("lined" wireframe coolie effect)
+        local ribs = 8
+        local brimRadius = VisualsState.HatRadius * 1.35
+        local apexY = 0.42
+        local brimY = -0.32
 
-    for i = 1, ribs do
-        local angle = ((i - 1) / ribs) * math.pi * 2
-        local bx = math.cos(angle) * brimRadius
-        local bz = math.sin(angle) * brimRadius
+        for i = 1, ribs do
+            local angle = ((i - 1) / ribs) * math.pi * 2
+            local bx = math.cos(angle) * brimRadius
+            local bz = math.sin(angle) * brimRadius
 
-        local startPt = Vector3.new(0, apexY, 0)
-        local endPt = Vector3.new(bx, brimY, bz)
-        local midPt = (startPt + endPt) / 2
-        local length = (endPt - startPt).Magnitude
+            local startPt = Vector3.new(0, apexY, 0)
+            local endPt = Vector3.new(bx, brimY, bz)
+            local midPt = (startPt + endPt) / 2
+            local length = (endPt - startPt).Magnitude
 
-        local rib = Instance.new("Part")
-        rib.Name = "HatRib"
-        rib.CanCollide = false
-        rib.CanTouch = false
-        rib.CanQuery = false
-        rib.Massless = true
-        rib.CastShadow = false
-        rib.Material = Enum.Material.Neon
-        rib.Color = Color3.fromRGB(225, 130, 255)
-        rib.Transparency = 0.15
-        rib.Size = Vector3.new(0.04, 0.04, length)
-        rib.CFrame = CFrame.lookAt(midPt, endPt)
+            local rib = Instance.new("Part")
+            rib.Name = "HatRib"
+            rib.CanCollide = false
+            rib.CanTouch = false
+            rib.CanQuery = false
+            rib.Massless = true
+            rib.CastShadow = false
+            rib.Material = Enum.Material.Neon
+            rib.Color = Color3.fromRGB(225, 130, 255)
+            rib.Transparency = 0.15
+            rib.Size = Vector3.new(0.04, 0.04, length)
 
-        local ribWeld = Instance.new("Weld")
-        ribWeld.Part0 = hat
-        ribWeld.Part1 = rib
-        ribWeld.C0 = hat.CFrame:ToObjectSpace(rib.CFrame)
-        ribWeld.Parent = rib
-        rib.Parent = hat
+            local ribWeld = Instance.new("Weld")
+            ribWeld.Part0 = h
+            ribWeld.Part1 = rib
+            ribWeld.C0 = CFrame.lookAt(midPt, endPt)
+            ribWeld.Parent = rib
+            rib.Parent = h
+        end
+
+        local w = Instance.new("Weld")
+        w.Part0 = head
+        w.Part1 = h
+        -- Hovering ABOVE their head (1.85 studs above head center)
+        w.C0 = CFrame.new(0, 1.85, 0)
+        w.Parent = h
+
+        h.Parent = char
+        return h, w
+    end)
+
+    if ok and hat and weld then
+        return hat, weld
     end
-
-    local weld = Instance.new("Weld")
-    weld.Part0 = head
-    weld.Part1 = hat
-    -- Hovering ABOVE their head (1.85 studs above head center)
-    weld.C0 = CFrame.new(0, 1.85, 0)
-    weld.Parent = hat
-
-    hat.Parent = char
-    return hat, weld
+    return nil, nil
 end
 
 local function updateChineseHat(entry, char, isLocal)
@@ -540,6 +575,7 @@ local function updateChineseHat(entry, char, isLocal)
         if entry.ChineseHatPart then
             pcall(function() entry.ChineseHatPart:Destroy() end)
             entry.ChineseHatPart = nil
+            entry.ChineseHatWeld = nil
         end
         return
     end
@@ -548,6 +584,7 @@ local function updateChineseHat(entry, char, isLocal)
         if entry.ChineseHatPart then
             pcall(function() entry.ChineseHatPart:Destroy() end)
             entry.ChineseHatPart = nil
+            entry.ChineseHatWeld = nil
         end
         return
     end
@@ -596,6 +633,7 @@ local function updatePlayer(entry)
     if not char then
         entry.Billboard.Enabled = false
         entry.SelectionBox.Visible = false
+        entry.SelectionBox.Adornee = nil
         if entry.TracerFrame then entry.TracerFrame.Visible = false end
         return
     end
@@ -606,16 +644,20 @@ local function updatePlayer(entry)
     if not hum or hum.Health <= 0 or not root then
         entry.Billboard.Enabled = false
         entry.SelectionBox.Visible = false
+        entry.SelectionBox.Adornee = nil
         if entry.TracerFrame then entry.TracerFrame.Visible = false end
         return
     end
 
-    -- Chinese Hat Update
-    updateChineseHat(entry, char, isLocal)
+    -- Chinese Hat Update (guarded in pcall)
+    pcall(function()
+        updateChineseHat(entry, char, isLocal)
+    end)
 
     if isLocal then
         entry.Billboard.Enabled = false
         entry.SelectionBox.Visible = false
+        entry.SelectionBox.Adornee = nil
         if entry.TracerFrame then entry.TracerFrame.Visible = false end
         return
     end
@@ -625,18 +667,20 @@ local function updatePlayer(entry)
     if VisualsState.TeamCheck and isTeammate then
         entry.Billboard.Enabled = false
         entry.SelectionBox.Visible = false
+        entry.SelectionBox.Adornee = nil
         if entry.TracerFrame then entry.TracerFrame.Visible = false end
         return
     end
 
     -- Chams per frame update
     if VisualsState.ChamsEnabled then
-        applyChams(plr)
+        pcall(function() applyChams(plr) end)
     end
 
     if not VisualsState.ESPEnabled then
         entry.Billboard.Enabled = false
         entry.SelectionBox.Visible = false
+        entry.SelectionBox.Adornee = nil
         if entry.TracerFrame then entry.TracerFrame.Visible = false end
         return
     end
@@ -644,55 +688,57 @@ local function updatePlayer(entry)
     local espColor = (isTeammate and VisualsState.TeamColor) or VisualsState.ESPColor
     local rig = getCharacterRigType(char)
 
-    -- Attach Billboard
+    -- Attach Billboard to root part
     entry.Billboard.Adornee = root
     entry.Billboard.Enabled = true
 
-    -- Adjust box size based on Rig Type
+    -- Adjust box and bar size based on Rig Type
     if rig == "R15" then
-        entry.MainBox.Size = UDim2.new(0.68, 0, 0.76, 0)
+        entry.BoxFrame.Size = UDim2.new(0.72, 0, 0.74, 0)
+        entry.HealthBarBg.Size = UDim2.new(0, 3, 0.74, 0)
     else
-        entry.MainBox.Size = UDim2.new(0.62, 0, 0.68, 0)
+        entry.BoxFrame.Size = UDim2.new(0.66, 0, 0.68, 0)
+        entry.HealthBarBg.Size = UDim2.new(0, 3, 0.68, 0)
     end
 
-    -- 1. Box ESP Selection: 2D Box, Corner Box, or 3D Box
+    -- 1. Box ESP: "2D Box", "Corner Box", or "3D Box"
     if VisualsState.BoxESP then
         if VisualsState.BoxStyle == "3D Box" then
-            entry.MainBox.Visible = false
+            entry.BoxFrame.Visible = false
             entry.CornerContainer.Visible = false
-
-            -- Position and update 3D Bounding Box Anchor Part
-            local boxHeight = (rig == "R15" and 5.8 or 5.2)
-            entry.Box3DPart.Size = Vector3.new(3.8, boxHeight, 2.8)
-            entry.Box3DPart.CFrame = root.CFrame
-            entry.Box3DPart.Parent = char
-
-            entry.SelectionBox.Color3 = espColor
-            entry.SelectionBox.Visible = true
+            pcall(function()
+                local okAdorn = pcall(function() entry.SelectionBox.Adornee = char end)
+                if not okAdorn then entry.SelectionBox.Adornee = root end
+                entry.SelectionBox.Color3 = espColor
+                entry.SelectionBox.SurfaceColor3 = espColor
+                entry.SelectionBox.Visible = true
+            end)
         elseif VisualsState.BoxStyle == "Corner Box" then
             entry.SelectionBox.Visible = false
-            entry.MainBox.Visible = true
+            entry.SelectionBox.Adornee = nil
+            entry.BoxFrame.Visible = true
             entry.BoxStroke.Enabled = false
             entry.CornerContainer.Visible = true
             for _, br in ipairs(entry.CornerBrackets) do
                 br.BackgroundColor3 = espColor
             end
         else
-            -- 2D Box
+            -- "2D Box"
             entry.SelectionBox.Visible = false
+            entry.SelectionBox.Adornee = nil
             entry.CornerContainer.Visible = false
-            entry.MainBox.Visible = true
+            entry.BoxFrame.Visible = true
             entry.BoxStroke.Enabled = true
             entry.BoxStroke.Color = espColor
         end
     else
-        entry.MainBox.Visible = (VisualsState.HealthBar or VisualsState.NameESP or VisualsState.DistanceESP or VisualsState.ToolESP)
-        entry.BoxStroke.Enabled = false
+        entry.BoxFrame.Visible = false
         entry.CornerContainer.Visible = false
         entry.SelectionBox.Visible = false
+        entry.SelectionBox.Adornee = nil
     end
 
-    -- 2. Health Bar
+    -- 2. Health Bar (Independent of BoxFrame visibility)
     if VisualsState.HealthBar then
         local hpPct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
         entry.HealthBarBg.Visible = true
@@ -702,7 +748,7 @@ local function updatePlayer(entry)
         entry.HealthBarBg.Visible = false
     end
 
-    -- 3. Name & Distance ESP
+    -- 3. Name & Distance ESP (Independent of BoxFrame visibility)
     if VisualsState.NameESP or VisualsState.DistanceESP then
         local dist = math.floor((root.Position - Camera.CFrame.Position).Magnitude)
         local textStr = ""
@@ -716,7 +762,7 @@ local function updatePlayer(entry)
         entry.NameLabel.Visible = false
     end
 
-    -- 4. Tool ESP
+    -- 4. Tool ESP (Independent of BoxFrame visibility)
     if VisualsState.ToolESP then
         local tool = getCharacterTool(char)
         if tool then
@@ -729,13 +775,13 @@ local function updatePlayer(entry)
         entry.ToolLabel.Visible = false
     end
 
-    -- 5. Tracers (Leading to BOTTOM CENTER of the box)
+    -- 5. Tracers (Leading to BOTTOM CENTER of the player box / feet)
     if VisualsState.Tracers and entry.TracerFrame then
         local bottomOffset = (rig == "R15" and 3.0 or 2.6)
         local feetWorldPos = root.Position - Vector3.new(0, bottomOffset, 0)
         local feetScreenPos, onScreen = Camera:WorldToViewportPoint(feetWorldPos)
 
-        if onScreen then
+        if onScreen and feetScreenPos.Z > 0 then
             local origin = getTracerOrigin()
             local targetPos = Vector2.new(feetScreenPos.X, feetScreenPos.Y)
             local dist = (targetPos - origin).Magnitude
@@ -755,33 +801,40 @@ local function updatePlayer(entry)
     end
 end
 
--- Render loop
+-- Render loop with individual try-catch to guarantee crash-free continuous rendering
 trackConnection(RunService.RenderStepped:Connect(function()
     for _, plr in ipairs(Players:GetPlayers()) do
         local entry = ESPHolders[plr]
         if not entry then
-            entry = createPlayerESP(plr)
-            ESPHolders[plr] = entry
+            local ok, newEntry = pcall(createPlayerESP, plr)
+            if ok and newEntry then
+                ESPHolders[plr] = newEntry
+                entry = newEntry
+            end
         end
-        updatePlayer(entry)
+        if entry then
+            pcall(updatePlayer, entry)
+        end
     end
 end))
 
 -- Handle PlayerAdded & PlayerRemoving
 trackConnection(Players.PlayerAdded:Connect(function(plr)
     if not ESPHolders[plr] then
-        ESPHolders[plr] = createPlayerESP(plr)
+        pcall(function()
+            ESPHolders[plr] = createPlayerESP(plr)
+        end)
     end
     plr.CharacterAdded:Connect(function()
         task.wait(0.3)
-        if VisualsState.ChamsEnabled then applyChams(plr) end
+        if VisualsState.ChamsEnabled then pcall(function() applyChams(plr) end) end
     end)
 end))
 
 trackConnection(Players.PlayerRemoving:Connect(function(plr)
-    restoreChams(plr)
+    pcall(function() restoreChams(plr) end)
     if ESPHolders[plr] then
-        removePlayerESP(ESPHolders[plr])
+        pcall(function() removePlayerESP(ESPHolders[plr]) end)
         ESPHolders[plr] = nil
     end
 end))
@@ -789,7 +842,9 @@ end))
 -- Pre-populate existing players
 for _, plr in ipairs(Players:GetPlayers()) do
     if not ESPHolders[plr] then
-        ESPHolders[plr] = createPlayerESP(plr)
+        pcall(function()
+            ESPHolders[plr] = createPlayerESP(plr)
+        end)
     end
 end
 
