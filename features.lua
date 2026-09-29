@@ -76,27 +76,15 @@ end
 ensureScreenGuiContainer()
 
 --//==================================================
---// FOV CIRCLE (SAME FRAME HOLDER METHOD AS ESP - CROSS-PLATFORM)
+--// FOV CIRCLE STATE (initialized after VisualsState below)
 --//==================================================
---// FOV CIRCLE (PURE FRAME SEGMENTS - EXACT SAME METHOD AS ESP)
---// 100% Cross-Platform: guaranteed to render on iPad & Mobile
---// Bypasses UIStroke / UICorner culling bugs on mobile GPU
---//==================================================
-
-local FOV_SEGMENTS_COUNT = 36
-local FOV_COS = {}
-local FOV_SIN = {}
-for i = 1, FOV_SEGMENTS_COUNT do
-    local a = (i - 1) * (2 * math.pi / FOV_SEGMENTS_COUNT)
-    FOV_COS[i] = math.cos(a)
-    FOV_SIN[i] = math.sin(a)
-end
 
 local FOVHolder = nil
 local FOVSegments = {}
 local FOVFillFrame = nil
 local lastTouchPos = nil
 
+-- Touch tracking (fine to wire up immediately since trackConnection is defined above)
 trackConnection(UserInputService.TouchStarted:Connect(function(touch)
     lastTouchPos = Vector2.new(touch.Position.X, touch.Position.Y)
 end))
@@ -104,120 +92,14 @@ trackConnection(UserInputService.TouchMoved:Connect(function(touch)
     lastTouchPos = Vector2.new(touch.Position.X, touch.Position.Y)
 end))
 
-local function ensureFOVCircle()
-    local container = ensureScreenGuiContainer()
-    if not container then return nil end
-
-    if FOVHolder and FOVHolder.Parent and #FOVSegments == FOV_SEGMENTS_COUNT then
-        return FOVHolder
-    end
-
-    if FOVHolder then pcall(function() FOVHolder:Destroy() end) end
-    table.clear(FOVSegments)
-
-    -- Full-viewport Frame holder (EXACT same pattern as ESP holder)
-    FOVHolder = Instance.new("Frame")
-    FOVHolder.Name = "AtomwareFOVHolder"
-    FOVHolder.Size = UDim2.fromScale(1, 1)
-    FOVHolder.Position = UDim2.fromScale(0, 0)
-    FOVHolder.BackgroundTransparency = 1
-    FOVHolder.BorderSizePixel = 0
-    FOVHolder.ClipsDescendants = false
-    FOVHolder.ZIndex = 5
-    pcall(function() FOVHolder.Parent = container end)
-
-    -- Filled circle center (optional fill when FOVFilled is on)
-    FOVFillFrame = Instance.new("Frame")
-    FOVFillFrame.Name = "FOVFill"
-    FOVFillFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    FOVFillFrame.BorderSizePixel = 0
-    FOVFillFrame.BackgroundTransparency = 1
-    FOVFillFrame.Visible = false
-    FOVFillFrame.ZIndex = 5
-    FOVFillFrame.Parent = FOVHolder
-
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(1, 0)
-    fillCorner.Parent = FOVFillFrame
-
-    -- 36 Line Segments (EXACT same method as Tracers and 3D Box ESP)
-    for i = 1, FOV_SEGMENTS_COUNT do
-        local line = Instance.new("Frame")
-        line.Name = "FOVSegment_" .. i
-        line.AnchorPoint = Vector2.new(0.5, 0.5)
-        line.BorderSizePixel = 0
-        line.BackgroundColor3 = VisualsState and VisualsState.FOVColor or Color3.fromRGB(157, 48, 255)
-        line.BackgroundTransparency = 0.2
-        line.Visible = false
-        line.ZIndex = 6
-        line.Parent = FOVHolder
-        table.insert(FOVSegments, line)
-    end
-
-    return FOVHolder
-end
-
-local function getAimReferencePoint()
-    local vp = Camera.ViewportSize
-    local center = Vector2.new(vp.X / 2, vp.Y / 2)
-    if VisualsState and VisualsState.AimType == "Mouse/Touch Aim" then
-        if lastTouchPos then
-            return lastTouchPos
-        end
-        local mousePos = UserInputService:GetMouseLocation()
-        if mousePos.X > 0 and mousePos.Y > 0 then
-            return Vector2.new(mousePos.X, mousePos.Y)
-        end
-    end
-    return center
-end
-
-local function updateFOVCircle()
-    if VisualsState.FOVEnabled then
-        ensureFOVCircle()
-        if FOVHolder and #FOVSegments == FOV_SEGMENTS_COUNT then
-            local rad = VisualsState.FOVRadius
-            local center = getAimReferencePoint()
-            local color = VisualsState.FOVColor
-            local trans = VisualsState.FOVTransparency
-
-            -- Optional filled center
-            if VisualsState.FOVFilled and FOVFillFrame then
-                FOVFillFrame.Size = UDim2.fromOffset(rad * 2, rad * 2)
-                FOVFillFrame.Position = UDim2.fromOffset(center.X, center.Y)
-                FOVFillFrame.BackgroundColor3 = color
-                FOVFillFrame.BackgroundTransparency = math.clamp(trans + 0.5, 0, 1)
-                FOVFillFrame.Visible = true
-            elseif FOVFillFrame then
-                FOVFillFrame.Visible = false
-            end
-
-            -- 36 Segments around circumference (same drawing math as 3D box and tracers)
-            for i = 1, FOV_SEGMENTS_COUNT do
-                local nextIdx = (i % FOV_SEGMENTS_COUNT) + 1
-                local p1 = center + Vector2.new(FOV_COS[i] * rad, FOV_SIN[i] * rad)
-                local p2 = center + Vector2.new(FOV_COS[nextIdx] * rad, FOV_SIN[nextIdx] * rad)
-                local dist = (p2 - p1).Magnitude
-                local mid = (p1 + p2) / 2
-                local angle = math.deg(math.atan2(p2.Y - p1.Y, p2.X - p1.X))
-
-                local seg = FOVSegments[i]
-                if seg then
-                    seg.Size = UDim2.fromOffset(dist + 0.8, 2)
-                    seg.Position = UDim2.fromOffset(mid.X, mid.Y)
-                    seg.Rotation = angle
-                    seg.BackgroundColor3 = color
-                    seg.BackgroundTransparency = trans
-                    seg.Visible = true
-                end
-            end
-        end
-    else
-        if FOVFillFrame then FOVFillFrame.Visible = false end
-        for _, seg in ipairs(FOVSegments) do
-            seg.Visible = false
-        end
-    end
+-- FOV_SEGMENTS_COUNT and cos/sin tables declared here, used after VisualsState
+local FOV_SEGMENTS_COUNT = 36
+local FOV_COS = {}
+local FOV_SIN = {}
+for i = 1, FOV_SEGMENTS_COUNT do
+    local a = (i - 1) * (2 * math.pi / FOV_SEGMENTS_COUNT)
+    FOV_COS[i] = math.cos(a)
+    FOV_SIN[i] = math.sin(a)
 end
 
 --//==================================================
@@ -285,6 +167,150 @@ local VisualsState = {
     HitboxColor         = Color3.fromRGB(157, 48, 255),
     HitboxMaterial      = "ForceField",
 }
+
+--//==================================================
+--// FOV CIRCLE ENGINE (COMBINED ESP BOX METHOD + FRAME SEGMENTS)
+--// 100% Cross-Platform: guaranteed to render on iPad & Mobile
+--// Uses the exact same working BoxFrame architecture as ESP (glass fill + stroke)
+--// PLUS 36 perimeter line segments for razor-sharp rendering on all GPU backends
+--//==================================================
+
+local FOVCircleBoxFrame = nil
+local FOVCircleBoxStroke = nil
+
+local function ensureFOVCircle()
+    local container = ensureScreenGuiContainer()
+    if not container then return nil end
+
+    if FOVHolder and FOVHolder.Parent and #FOVSegments == FOV_SEGMENTS_COUNT and FOVCircleBoxFrame and FOVCircleBoxFrame.Parent then
+        return FOVHolder
+    end
+
+    if FOVHolder then pcall(function() FOVHolder:Destroy() end) end
+    table.clear(FOVSegments)
+    FOVCircleBoxFrame = nil
+    FOVCircleBoxStroke = nil
+
+    -- Full-viewport Frame holder (EXACT SAME AS ESP HOLDER)
+    FOVHolder = Instance.new("Frame")
+    FOVHolder.Name = "AtomwareFOVHolder"
+    FOVHolder.Size = UDim2.fromScale(1, 1)
+    FOVHolder.Position = UDim2.fromScale(0, 0)
+    FOVHolder.BackgroundTransparency = 1
+    FOVHolder.BorderSizePixel = 0
+    FOVHolder.ClipsDescendants = false
+    FOVHolder.ZIndex = 2
+    pcall(function() FOVHolder.Parent = container end)
+
+    -- 1. EXACT ESP BOX METHOD CIRCLE (Glass fill + UIStroke + UICorner)
+    FOVCircleBoxFrame = Instance.new("Frame")
+    FOVCircleBoxFrame.Name = "FOVCircleBox"
+    FOVCircleBoxFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    FOVCircleBoxFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    FOVCircleBoxFrame.BackgroundTransparency = 0.88
+    FOVCircleBoxFrame.BorderSizePixel = 0
+    FOVCircleBoxFrame.Visible = false
+    FOVCircleBoxFrame.ZIndex = 3
+    FOVCircleBoxFrame.Parent = FOVHolder
+
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(1, 0)
+    boxCorner.Parent = FOVCircleBoxFrame
+
+    FOVCircleBoxStroke = Instance.new("UIStroke")
+    FOVCircleBoxStroke.Name = "FOVBoxStroke"
+    FOVCircleBoxStroke.Color = VisualsState and VisualsState.FOVColor or Color3.fromRGB(157, 48, 255)
+    FOVCircleBoxStroke.Thickness = 1.5
+    FOVCircleBoxStroke.Parent = FOVCircleBoxFrame
+
+    -- 2. 36 LINE SEGMENTS (EXACT TRACER / 3D BOX METHOD)
+    for i = 1, FOV_SEGMENTS_COUNT do
+        local line = Instance.new("Frame")
+        line.Name = "FOVSeg" .. i
+        line.AnchorPoint = Vector2.new(0.5, 0.5)
+        line.BorderSizePixel = 0
+        line.BackgroundColor3 = VisualsState and VisualsState.FOVColor or Color3.fromRGB(157, 48, 255)
+        line.BackgroundTransparency = VisualsState and VisualsState.FOVTransparency or 0.2
+        line.Visible = false
+        line.ZIndex = 4
+        line.Parent = FOVHolder
+        table.insert(FOVSegments, line)
+    end
+
+    return FOVHolder
+end
+
+local function getAimReferencePoint()
+    local vp = Camera.ViewportSize
+    if VisualsState.AimType == "Mouse/Touch Aim" then
+        if lastTouchPos then return lastTouchPos end
+        local mp = UserInputService:GetMouseLocation()
+        if mp.X > 0 or mp.Y > 0 then return Vector2.new(mp.X, mp.Y) end
+    end
+    return Vector2.new(vp.X / 2, vp.Y / 2)
+end
+
+local function updateFOVCircle()
+    if not VisualsState.FOVEnabled then
+        if FOVCircleBoxFrame then FOVCircleBoxFrame.Visible = false end
+        for _, seg in ipairs(FOVSegments) do seg.Visible = false end
+        return
+    end
+
+    ensureFOVCircle()
+    if not FOVHolder then return end
+
+    local rad    = VisualsState.FOVRadius
+    local center = getAimReferencePoint()
+    local color  = VisualsState.FOVColor
+    local trans  = VisualsState.FOVTransparency
+
+    -- 1. Update ESP Box Method Circle
+    if FOVCircleBoxFrame then
+        FOVCircleBoxFrame.Size = UDim2.fromOffset(rad * 2, rad * 2)
+        FOVCircleBoxFrame.Position = UDim2.fromOffset(center.X, center.Y)
+        if VisualsState.FOVFilled then
+            FOVCircleBoxFrame.BackgroundColor3 = color
+            FOVCircleBoxFrame.BackgroundTransparency = math.clamp(trans + 0.5, 0, 1)
+        else
+            FOVCircleBoxFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            FOVCircleBoxFrame.BackgroundTransparency = 0.88
+        end
+        if FOVCircleBoxStroke then
+            FOVCircleBoxStroke.Color = color
+            FOVCircleBoxStroke.Transparency = trans
+        end
+        FOVCircleBoxFrame.Visible = true
+    end
+
+    -- 2. Update 36 Line Segments
+    if #FOVSegments == FOV_SEGMENTS_COUNT then
+        for i = 1, FOV_SEGMENTS_COUNT do
+            local ni  = (i % FOV_SEGMENTS_COUNT) + 1
+            local p1  = center + Vector2.new(FOV_COS[i]  * rad, FOV_SIN[i]  * rad)
+            local p2  = center + Vector2.new(FOV_COS[ni] * rad, FOV_SIN[ni] * rad)
+            local dx  = p2.X - p1.X
+            local dy  = p2.Y - p1.Y
+            local len = math.sqrt(dx * dx + dy * dy)
+            local mx  = (p1.X + p2.X) * 0.5
+            local my  = (p1.Y + p2.Y) * 0.5
+            local ang = math.deg(math.atan2(dy, dx))
+
+            local seg = FOVSegments[i]
+            if seg then
+                seg.Size                = UDim2.fromOffset(len + 1, 2)
+                seg.Position            = UDim2.fromOffset(mx, my)
+                seg.Rotation            = ang
+                seg.BackgroundColor3    = color
+                seg.BackgroundTransparency = trans
+                seg.Visible             = true
+            end
+        end
+    end
+end
+
+-- Pre-initialize FOV Circle upfront (exact same pattern as ESP pre-population)
+pcall(ensureFOVCircle)
 
 --//==================================================
 --// MATERIAL CHAMS ENGINE (t1r4 ADAPTATION)
@@ -1380,6 +1406,129 @@ for _, plr in ipairs(Players:GetPlayers()) do
 end
 
 --//==================================================
+--// STAGE 3: PLAYER / MOVEMENT ENGINE (CROSS-PLATFORM)
+--//==================================================
+
+local MovementState = {
+    SpeedEnabled = false,
+    WalkSpeed = 32,
+    JumpEnabled = false,
+    JumpPower = 100,
+    InfiniteJump = false,
+    BunnyHop = false,
+    FlyEnabled = false,
+    FlySpeed = 50,
+    Noclip = false,
+    FreeCam = false,
+    FreeCamSpeed = 10,
+}
+
+local defaultWalkSpeed = 16
+local defaultJumpPower = 50
+local flyBodyVelocity = nil
+local flyBodyGyro = nil
+
+-- Noclip Handler (Stepped runs before physics simulation)
+trackConnection(RunService.Stepped:Connect(function()
+    if MovementState.Noclip and LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+end))
+
+-- Infinite Jump Handler (Space on PC, Jump button on Mobile)
+trackConnection(UserInputService.JumpRequest:Connect(function()
+    if MovementState.InfiniteJump and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end))
+
+-- Movement, Flight & Jump Loop (Heartbeat)
+trackConnection(RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = getCharacterRoot(char)
+    if not hum or hum.Health <= 0 or not root then return end
+
+    -- Speed Hack
+    if MovementState.SpeedEnabled then
+        hum.WalkSpeed = MovementState.WalkSpeed
+    end
+
+    -- Super Jump
+    if MovementState.JumpEnabled then
+        hum.UseJumpPower = true
+        hum.JumpPower = MovementState.JumpPower
+    end
+
+    -- Bunny Hop (Auto-jump when moving on ground)
+    if MovementState.BunnyHop and hum.FloorMaterial ~= Enum.Material.Air and hum.MoveDirection.Magnitude > 0 then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+
+    -- Flight Engine (PC & Mobile)
+    if MovementState.FlyEnabled then
+        if not flyBodyVelocity or not flyBodyVelocity.Parent then
+            flyBodyVelocity = Instance.new("BodyVelocity")
+            flyBodyVelocity.Name = "AtomwareFlyBV"
+            flyBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+            flyBodyVelocity.Parent = root
+
+            flyBodyGyro = Instance.new("BodyGyro")
+            flyBodyGyro.Name = "AtomwareFlyBG"
+            flyBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+            flyBodyGyro.P = 1e4
+            flyBodyGyro.CFrame = root.CFrame
+            flyBodyGyro.Parent = root
+        end
+
+        local moveDir = hum.MoveDirection
+        local camCF = Camera.CFrame
+        local targetVel = Vector3.zero
+
+        if moveDir.Magnitude > 0 then
+            local forward = camCF.LookVector
+            local right = camCF.RightVector
+            local camRelativeDir = (forward * (-Vector3.new(0,0,1):Dot(moveDir)) + right * (Vector3.new(1,0,0):Dot(moveDir))).Unit
+            if camRelativeDir.Magnitude > 0 then
+                targetVel = camRelativeDir * MovementState.FlySpeed
+            else
+                targetVel = moveDir * MovementState.FlySpeed
+            end
+        end
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            targetVel = targetVel + Vector3.new(0, MovementState.FlySpeed * 0.8, 0)
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            targetVel = targetVel - Vector3.new(0, MovementState.FlySpeed * 0.8, 0)
+        end
+
+        flyBodyVelocity.Velocity = targetVel
+        flyBodyGyro.CFrame = camCF
+        hum.PlatformStand = true
+    else
+        if flyBodyVelocity then
+            pcall(function() flyBodyVelocity:Destroy() end)
+            flyBodyVelocity = nil
+        end
+        if flyBodyGyro then
+            pcall(function() flyBodyGyro:Destroy() end)
+            flyBodyGyro = nil
+        end
+        if hum.PlatformStand then
+            hum.PlatformStand = false
+        end
+    end
+end))
+
+--//==================================================
 --// EVENT HOOK CONNECTIONS FROM UI (SAFE WRAPPERS)
 --//==================================================
 
@@ -1520,6 +1669,47 @@ bindDropdown("Hitbox Material", function(v)
 end)
 
 --//==================================================
+--// STAGE 3: PLAYER / MOVEMENT BINDINGS
+--//==================================================
+
+bindToggle("Speed Hack", function(v)
+    MovementState.SpeedEnabled = v
+    if not v and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = defaultWalkSpeed end
+    end
+end)
+bindSlider("WalkSpeed", function(v) MovementState.WalkSpeed = v end)
+
+bindToggle("Super Jump", function(v)
+    MovementState.JumpEnabled = v
+    if not v and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.JumpPower = defaultJumpPower end
+    end
+end)
+bindSlider("JumpPower", function(v) MovementState.JumpPower = v end)
+
+bindToggle("Infinite Jump", function(v) MovementState.InfiniteJump = v end)
+bindToggle("Bunny Hop", function(v) MovementState.BunnyHop = v end)
+
+bindToggle("Fly", function(v)
+    MovementState.FlyEnabled = v
+    if not v and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum.PlatformStand then hum.PlatformStand = false end
+    end
+end)
+bindSlider("Fly Speed", function(v) MovementState.FlySpeed = v end)
+
+bindToggle("Noclip", function(v) MovementState.Noclip = v end)
+bindToggle("FreeCam", function(v)
+    MovementState.FreeCam = v
+    if _G.FireEvent then _G.FireEvent("FreeCam Active", v) end
+end)
+bindSlider("FreeCam Speed", function(v) MovementState.FreeCamSpeed = v end)
+
+--//==================================================
 --// UNLOAD HANDLER
 --//==================================================
 
@@ -1535,11 +1725,22 @@ if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
             pcall(function() FOVHolder:Destroy() end)
             FOVHolder = nil
             table.clear(FOVSegments)
-            FOVFillFrame = nil
+            FOVCircleBoxFrame = nil
+            FOVCircleBoxStroke = nil
         end
         if ScreenGuiContainer then
             pcall(function() ScreenGuiContainer:Destroy() end)
             ScreenGuiContainer = nil
+        end
+        if flyBodyVelocity then pcall(function() flyBodyVelocity:Destroy() end) end
+        if flyBodyGyro then pcall(function() flyBodyGyro:Destroy() end) end
+        if LocalPlayer.Character then
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.WalkSpeed = defaultWalkSpeed
+                hum.JumpPower = defaultJumpPower
+                if hum.PlatformStand then hum.PlatformStand = false end
+            end
         end
     end)
 end

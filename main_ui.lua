@@ -1047,15 +1047,21 @@ createDropdown(bHitbox, "Hitbox Material", { "ForceField", "Neon", "Glass", "Smo
 -- TAB 3: PLAYER
 -- ---------------------------------------------------
 local pPlayer = Pages["Player"]
-local _, bPlayer = createCard(pPlayer, "Movement & Player")
-local pNotice = Instance.new("TextLabel")
-pNotice.Size = UDim2.new(1, 0, 0, 32)
-pNotice.BackgroundTransparency = 1
-pNotice.Text = "Universal Player modules will load here."
-pNotice.TextColor3 = THEME.TextMuted
-pNotice.TextSize = 12
-pNotice.Font = FONT
-pNotice.Parent = bPlayer
+
+local _, bMove = createCard(pPlayer, "Movement")
+createToggle(bMove, "Speed Hack", false)
+createSlider(bMove, "WalkSpeed", 16, 250, 32, 1, " studs/s")
+createToggle(bMove, "Super Jump", false)
+createSlider(bMove, "JumpPower", 50, 300, 100, 5, "")
+createToggle(bMove, "Infinite Jump", false)
+createToggle(bMove, "Bunny Hop", false)
+
+local _, bFly = createCard(pPlayer, "Flight & Utility")
+createToggle(bFly, "Fly", false)
+createSlider(bFly, "Fly Speed", 10, 200, 50, 5, "")
+createToggle(bFly, "Noclip", false)
+createToggle(bFly, "FreeCam", false)
+createSlider(bFly, "FreeCam Speed", 1, 50, 10, 1, "")
 
 -- ---------------------------------------------------
 -- TAB 4: SETTINGS
