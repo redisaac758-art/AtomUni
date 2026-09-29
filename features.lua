@@ -78,25 +78,44 @@ ensureScreenGuiContainer()
 --//==================================================
 --// FOV CIRCLE (SAME FRAME HOLDER METHOD AS ESP - CROSS-PLATFORM)
 --//==================================================
+--// FOV CIRCLE (PURE FRAME SEGMENTS - EXACT SAME METHOD AS ESP)
+--// 100% Cross-Platform: guaranteed to render on iPad & Mobile
+--// Bypasses UIStroke / UICorner culling bugs on mobile GPU
+--//==================================================
 
-local FOVHolder = nil      -- full-viewport Frame (same as ESP holder)
-local FOVCircleFrame = nil -- the actual circle Frame inside holder
-local FOVCircleStroke = nil
-local MouseFOVPos = Vector2.new(0, 0)   -- updated each frame for Mouse aim mode
+local FOV_SEGMENTS_COUNT = 36
+local FOV_COS = {}
+local FOV_SIN = {}
+for i = 1, FOV_SEGMENTS_COUNT do
+    local a = (i - 1) * (2 * math.pi / FOV_SEGMENTS_COUNT)
+    FOV_COS[i] = math.cos(a)
+    FOV_SIN[i] = math.sin(a)
+end
+
+local FOVHolder = nil
+local FOVSegments = {}
+local FOVFillFrame = nil
+local lastTouchPos = nil
+
+trackConnection(UserInputService.TouchStarted:Connect(function(touch)
+    lastTouchPos = Vector2.new(touch.Position.X, touch.Position.Y)
+end))
+trackConnection(UserInputService.TouchMoved:Connect(function(touch)
+    lastTouchPos = Vector2.new(touch.Position.X, touch.Position.Y)
+end))
 
 local function ensureFOVCircle()
     local container = ensureScreenGuiContainer()
     if not container then return nil end
 
-    -- If holder is still valid, return existing circle
-    if FOVHolder and FOVHolder.Parent and FOVCircleFrame and FOVCircleFrame.Parent then
-        return FOVCircleFrame
+    if FOVHolder and FOVHolder.Parent and #FOVSegments == FOV_SEGMENTS_COUNT then
+        return FOVHolder
     end
 
-    -- Destroy stale instances if they lost parent
     if FOVHolder then pcall(function() FOVHolder:Destroy() end) end
+    table.clear(FOVSegments)
 
-    -- Full-viewport transparent Frame holder (EXACT same pattern as ESP holder)
+    -- Full-viewport Frame holder (EXACT same pattern as ESP holder)
     FOVHolder = Instance.new("Frame")
     FOVHolder.Name = "AtomwareFOVHolder"
     FOVHolder.Size = UDim2.fromScale(1, 1)
@@ -104,74 +123,99 @@ local function ensureFOVCircle()
     FOVHolder.BackgroundTransparency = 1
     FOVHolder.BorderSizePixel = 0
     FOVHolder.ClipsDescendants = false
-    FOVHolder.ZIndex = 1
+    FOVHolder.ZIndex = 5
     pcall(function() FOVHolder.Parent = container end)
 
-    -- Circle Frame inside the holder
-    FOVCircleFrame = Instance.new("Frame")
-    FOVCircleFrame.Name = "AtomwareFOVCircle"
-    FOVCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    FOVCircleFrame.BorderSizePixel = 0
-    FOVCircleFrame.BackgroundTransparency = 1
-    FOVCircleFrame.Visible = false
-    FOVCircleFrame.ZIndex = 2
-    FOVCircleFrame.Parent = FOVHolder
+    -- Filled circle center (optional fill when FOVFilled is on)
+    FOVFillFrame = Instance.new("Frame")
+    FOVFillFrame.Name = "FOVFill"
+    FOVFillFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    FOVFillFrame.BorderSizePixel = 0
+    FOVFillFrame.BackgroundTransparency = 1
+    FOVFillFrame.Visible = false
+    FOVFillFrame.ZIndex = 5
+    FOVFillFrame.Parent = FOVHolder
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(1, 0)
-    corner.Parent = FOVCircleFrame
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(1, 0)
+    fillCorner.Parent = FOVFillFrame
 
-    FOVCircleStroke = Instance.new("UIStroke")
-    FOVCircleStroke.Name = "FOVStroke"
-    FOVCircleStroke.Thickness = 1.5
-    FOVCircleStroke.Color = Color3.fromRGB(157, 48, 255)
-    FOVCircleStroke.Transparency = 0.2
-    FOVCircleStroke.Parent = FOVCircleFrame
+    -- 36 Line Segments (EXACT same method as Tracers and 3D Box ESP)
+    for i = 1, FOV_SEGMENTS_COUNT do
+        local line = Instance.new("Frame")
+        line.Name = "FOVSegment_" .. i
+        line.AnchorPoint = Vector2.new(0.5, 0.5)
+        line.BorderSizePixel = 0
+        line.BackgroundColor3 = VisualsState and VisualsState.FOVColor or Color3.fromRGB(157, 48, 255)
+        line.BackgroundTransparency = 0.2
+        line.Visible = false
+        line.ZIndex = 6
+        line.Parent = FOVHolder
+        table.insert(FOVSegments, line)
+    end
 
-    -- Thin black outline for contrast
-    local outline = Instance.new("UIStroke")
-    outline.Name = "FOVOutline"
-    outline.Thickness = 1.0
-    outline.Color = Color3.fromRGB(0, 0, 0)
-    outline.Transparency = 0.55
-    -- Note: Only one UIStroke can be active per Frame; outline goes into a wrapper Frame
-    -- So we skip it to avoid conflict—single-stroke is clean enough
-
-    return FOVCircleFrame
+    return FOVHolder
 end
 
 local function getAimReferencePoint()
+    local vp = Camera.ViewportSize
+    local center = Vector2.new(vp.X / 2, vp.Y / 2)
     if VisualsState and VisualsState.AimType == "Mouse/Touch Aim" then
+        if lastTouchPos then
+            return lastTouchPos
+        end
         local mousePos = UserInputService:GetMouseLocation()
-        return Vector2.new(mousePos.X, mousePos.Y)
-    else
-        local vp = Camera.ViewportSize
-        return Vector2.new(vp.X / 2, vp.Y / 2)
+        if mousePos.X > 0 and mousePos.Y > 0 then
+            return Vector2.new(mousePos.X, mousePos.Y)
+        end
     end
+    return center
 end
 
 local function updateFOVCircle()
     if VisualsState.FOVEnabled then
         ensureFOVCircle()
-        if FOVCircleFrame then
+        if FOVHolder and #FOVSegments == FOV_SEGMENTS_COUNT then
             local rad = VisualsState.FOVRadius
             local center = getAimReferencePoint()
+            local color = VisualsState.FOVColor
+            local trans = VisualsState.FOVTransparency
 
-            FOVCircleFrame.Size = UDim2.fromOffset(rad * 2, rad * 2)
-            FOVCircleFrame.Position = UDim2.fromOffset(center.X, center.Y)
-            FOVCircleFrame.BackgroundColor3 = VisualsState.FOVColor
-            FOVCircleFrame.BackgroundTransparency = VisualsState.FOVFilled
-                and math.clamp(VisualsState.FOVTransparency + 0.5, 0, 1)
-                or 1
-            if FOVCircleStroke then
-                FOVCircleStroke.Color = VisualsState.FOVColor
-                FOVCircleStroke.Transparency = VisualsState.FOVTransparency
+            -- Optional filled center
+            if VisualsState.FOVFilled and FOVFillFrame then
+                FOVFillFrame.Size = UDim2.fromOffset(rad * 2, rad * 2)
+                FOVFillFrame.Position = UDim2.fromOffset(center.X, center.Y)
+                FOVFillFrame.BackgroundColor3 = color
+                FOVFillFrame.BackgroundTransparency = math.clamp(trans + 0.5, 0, 1)
+                FOVFillFrame.Visible = true
+            elseif FOVFillFrame then
+                FOVFillFrame.Visible = false
             end
-            FOVCircleFrame.Visible = true
+
+            -- 36 Segments around circumference (same drawing math as 3D box and tracers)
+            for i = 1, FOV_SEGMENTS_COUNT do
+                local nextIdx = (i % FOV_SEGMENTS_COUNT) + 1
+                local p1 = center + Vector2.new(FOV_COS[i] * rad, FOV_SIN[i] * rad)
+                local p2 = center + Vector2.new(FOV_COS[nextIdx] * rad, FOV_SIN[nextIdx] * rad)
+                local dist = (p2 - p1).Magnitude
+                local mid = (p1 + p2) / 2
+                local angle = math.deg(math.atan2(p2.Y - p1.Y, p2.X - p1.X))
+
+                local seg = FOVSegments[i]
+                if seg then
+                    seg.Size = UDim2.fromOffset(dist + 0.8, 2)
+                    seg.Position = UDim2.fromOffset(mid.X, mid.Y)
+                    seg.Rotation = angle
+                    seg.BackgroundColor3 = color
+                    seg.BackgroundTransparency = trans
+                    seg.Visible = true
+                end
+            end
         end
     else
-        if FOVCircleFrame then
-            FOVCircleFrame.Visible = false
+        if FOVFillFrame then FOVFillFrame.Visible = false end
+        for _, seg in ipairs(FOVSegments) do
+            seg.Visible = false
         end
     end
 end
@@ -1436,7 +1480,12 @@ bindToggle("Aim Active", function(v) VisualsState.AimActive = v end)
 -- FOV Circle
 bindToggle("Show FOV Circle", function(v)
     VisualsState.FOVEnabled = v
-    if not v and FOVCircleFrame then FOVCircleFrame.Visible = false end
+    if not v then
+        if FOVFillFrame then FOVFillFrame.Visible = false end
+        for _, seg in ipairs(FOVSegments) do
+            seg.Visible = false
+        end
+    end
 end)
 bindSlider("FOV Radius", function(v) VisualsState.FOVRadius = v end)
 bindColorPicker("FOV Color", function(v) VisualsState.FOVColor = v end)
@@ -1482,9 +1531,11 @@ if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
             removePlayerESP(entry)
         end
         table.clear(ESPHolders)
-        if FOVCircleFrame then
-            pcall(function() FOVCircleFrame:Destroy() end)
-            FOVCircleFrame = nil
+        if FOVHolder then
+            pcall(function() FOVHolder:Destroy() end)
+            FOVHolder = nil
+            table.clear(FOVSegments)
+            FOVFillFrame = nil
         end
         if ScreenGuiContainer then
             pcall(function() ScreenGuiContainer:Destroy() end)
