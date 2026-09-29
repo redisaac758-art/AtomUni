@@ -12,8 +12,8 @@
 -- GAME DETECTION & RULES
 -- ──────────────────────────────────────────────────────────────────────────
 local TRIDENT_PLACE_IDS = {
-    [] = true,
-    [] = true,
+    [87878787] = true,
+    [908989898] = true,
 }
 
 local function isTridentSurvival()
