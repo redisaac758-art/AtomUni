@@ -1027,12 +1027,31 @@ local _, bWorld = createCard(pVisuals, "World & Ambience")
 createToggle(bWorld, "No Fog", false)
 createToggle(bWorld, "Custom Time", false)
 createSlider(bWorld, "Time of Day", 0, 24, 14, 1, " hrs")
-createDropdown(bWorld, "Skybox Preset", { "Default", "Purple Nebula", "Night Galaxy", "Synthwave" }, "Default")
+createDropdown(bWorld, "Skybox Preset", { "Default", "Purple Nebula", "Night Galaxy", "Synthwave", "Overcast" }, "Default")
 
 local _, bRadar = createCard(pVisuals, "Mini-Radar (2D HUD)")
 createToggle(bRadar, "Mini-Radar", false)
 createSlider(bRadar, "Radar Range", 50, 400, 150, 10, " studs")
 createSlider(bRadar, "Radar Size", 80, 200, 130, 5, " px")
+
+local _, bTracers = createCard(pVisuals, "Bullet Tracers")
+createToggle(bTracers, "Bullet Tracers", false)
+createColorPicker(bTracers, "Tracer Color", Color3.fromRGB(255, 60, 60))
+createSlider(bTracers, "Tracer Thickness", 1, 8, 2, 0.5, " px")
+createSlider(bTracers, "Tracer Duration", 0.05, 2, 0.35, 0.05, " s")
+createToggle(bTracers, "Tracer Particles", true)
+
+local _, bHitmark = createCard(pVisuals, "Hitmarker")
+createToggle(bHitmark, "Hitmarker", false)
+createColorPicker(bHitmark, "Hitmarker Color", Color3.fromRGB(255, 255, 255))
+createSlider(bHitmark, "Hitmarker Size", 6, 40, 14, 1, " px")
+createSlider(bHitmark, "Hitmarker Duration", 0.05, 1, 0.25, 0.05, " s")
+
+local _, bHitSnd = createCard(pVisuals, "Hit Sounds")
+createToggle(bHitSnd, "Hit Sounds", false)
+createDropdown(bHitSnd, "Hit Sound Type", { "Default", "Rust", "Gamesense", "Magic", "Firework", "Lazer", "Pop", "Zap" }, "Default")
+createSlider(bHitSnd, "Hit Sound Volume", 0, 1, 0.7, 0.05, "")
+
 
 -- ---------------------------------------------------
 -- TAB 2: COMBAT

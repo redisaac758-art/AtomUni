@@ -201,6 +201,24 @@ local VisualsState = {
     RadarEnabled        = false,
     RadarRange          = 150,
     RadarSize           = 130,
+
+    -- Bullet Tracers
+    BulletTracersEnabled    = false,
+    BulletTracerColor       = Color3.fromRGB(255, 60, 60),
+    BulletTracerThickness   = 2,
+    BulletTracerDuration    = 0.35,
+    BulletTracerParticles   = true,
+
+    -- Hitmarker
+    HitmarkerEnabled    = false,
+    HitmarkerColor      = Color3.fromRGB(255, 255, 255),
+    HitmarkerSize       = 14,
+    HitmarkerDuration   = 0.25,
+
+    -- Hit Sounds
+    HitSoundEnabled     = false,
+    HitSoundType        = "Default",
+    HitSoundVolume      = 0.7,
 }
 
 --//==================================================
@@ -732,12 +750,16 @@ local function updateTargetHUD(targetPart, isAiming, bestTargetPlayer)
 
     if tHead and myHead then
         local dirToMe = (myHead.Position - tHead.Position).Unit
-        local lookDot = tHead.CFrame.LookVector:Dot(dirToMe)
-        if lookDot > 0.65 then
-            TargetLookLabel.Text = "⚠ Looking directly at you"
+        local lookDot = math.clamp(tHead.CFrame.LookVector:Dot(dirToMe), -1, 1)
+        local angleDeg = math.deg(math.acos(lookDot))
+        if angleDeg <= 20 then
+            TargetLookLabel.Text = "⚠ Looking directly at you!"
             TargetLookLabel.TextColor3 = Color3.fromRGB(255, 75, 100)
+        elseif angleDeg <= 50 then
+            TargetLookLabel.Text = "⚡ Facing towards you (" .. math.floor(angleDeg) .. "°)"
+            TargetLookLabel.TextColor3 = Color3.fromRGB(255, 180, 60)
         else
-            TargetLookLabel.Text = "Looking away (" .. math.floor(math.acos(math.clamp(lookDot, -1, 1)) * 57.29) .. "°)"
+            TargetLookLabel.Text = "Looking away (" .. math.floor(angleDeg) .. "°)"
             TargetLookLabel.TextColor3 = Color3.fromRGB(160, 150, 200)
         end
     else
@@ -1108,6 +1130,25 @@ local function createPlayerESP(player)
     lookRayLine.ZIndex = 4
     lookRayLine.Parent = holder
 
+    -- Arrow tip barbs (two short angled lines at ray end)
+    local lookRayBarb1 = Instance.new("Frame")
+    lookRayBarb1.Name = "LookRayBarb1"
+    lookRayBarb1.AnchorPoint = Vector2.new(0, 0.5)
+    lookRayBarb1.BorderSizePixel = 0
+    lookRayBarb1.BackgroundColor3 = VisualsState.LookRayColor
+    lookRayBarb1.Visible = false
+    lookRayBarb1.ZIndex = 4
+    lookRayBarb1.Parent = holder
+
+    local lookRayBarb2 = Instance.new("Frame")
+    lookRayBarb2.Name = "LookRayBarb2"
+    lookRayBarb2.AnchorPoint = Vector2.new(0, 0.5)
+    lookRayBarb2.BorderSizePixel = 0
+    lookRayBarb2.BackgroundColor3 = VisualsState.LookRayColor
+    lookRayBarb2.Visible = false
+    lookRayBarb2.ZIndex = 4
+    lookRayBarb2.Parent = holder
+
     -- 10. Skeleton / Bone Lines (14 segments for R15/R6)
     local skeletonLines = {}
     for i = 1, 14 do
@@ -1138,6 +1179,8 @@ local function createPlayerESP(player)
         ToolLabel = toolLabel,
         TracerFrame = tracerFrame,
         LookRayLine = lookRayLine,
+        LookRayBarb1 = lookRayBarb1,
+        LookRayBarb2 = lookRayBarb2,
         SkeletonLines = skeletonLines,
         ChineseHatPart = nil,
     }
@@ -1302,6 +1345,8 @@ local function hidePlayerVisuals(entry)
     entry.ToolLabel.Visible = false
     entry.TracerFrame.Visible = false
     if entry.LookRayLine then entry.LookRayLine.Visible = false end
+    if entry.LookRayBarb1 then entry.LookRayBarb1.Visible = false end
+    if entry.LookRayBarb2 then entry.LookRayBarb2.Visible = false end
     if entry.SkeletonLines then
         for _, l in ipairs(entry.SkeletonLines) do l.Visible = false end
     end
@@ -1638,7 +1683,8 @@ local function updatePlayer(entry)
     if VisualsState.LookRays and not isLocal and entry.LookRayLine then
         local head = char:FindFirstChild("Head")
         if head then
-            local rayEnd = head.Position + (head.CFrame.LookVector * VisualsState.LookRayLength)
+            local rayLength = math.max(VisualsState.LookRayLength, 7)
+            local rayEnd = head.Position + (head.CFrame.LookVector * rayLength)
             local s1, on1 = Camera:WorldToViewportPoint(head.Position)
             local s2, on2 = Camera:WorldToViewportPoint(rayEnd)
             if s1.Z > 0 and s2.Z > 0 then
@@ -1647,20 +1693,45 @@ local function updatePlayer(entry)
                 local dist = math.sqrt(dx * dx + dy * dy)
                 local mid = Vector2.new((s1.X + s2.X) * 0.5, (s1.Y + s2.Y) * 0.5)
                 local angle = math.deg(math.atan2(dy, dx))
+                local col = VisualsState.LookRayColor
 
                 entry.LookRayLine.Size = UDim2.fromOffset(dist, 1.8)
                 entry.LookRayLine.Position = UDim2.fromOffset(mid.X, mid.Y)
                 entry.LookRayLine.Rotation = angle
-                entry.LookRayLine.BackgroundColor3 = VisualsState.LookRayColor
+                entry.LookRayLine.BackgroundColor3 = col
                 entry.LookRayLine.Visible = true
+
+                -- Arrow barbs: two short lines at s2 angled ±150° from ray direction
+                local BARB_LEN = 9
+                local BARB_THICK = 1.8
+                for bIdx, barb in ipairs({ entry.LookRayBarb1, entry.LookRayBarb2 }) do
+                    if barb then
+                        local bAngle = angle + (bIdx == 1 and 150 or -150)
+                        local bRad = math.rad(bAngle)
+                        local bMidX = s2.X + math.cos(bRad) * BARB_LEN * 0.5
+                        local bMidY = s2.Y + math.sin(bRad) * BARB_LEN * 0.5
+                        barb.Size = UDim2.fromOffset(BARB_LEN, BARB_THICK)
+                        barb.AnchorPoint = Vector2.new(0.5, 0.5)
+                        barb.Position = UDim2.fromOffset(bMidX, bMidY)
+                        barb.Rotation = bAngle
+                        barb.BackgroundColor3 = col
+                        barb.Visible = true
+                    end
+                end
             else
                 entry.LookRayLine.Visible = false
+                if entry.LookRayBarb1 then entry.LookRayBarb1.Visible = false end
+                if entry.LookRayBarb2 then entry.LookRayBarb2.Visible = false end
             end
         else
             entry.LookRayLine.Visible = false
+            if entry.LookRayBarb1 then entry.LookRayBarb1.Visible = false end
+            if entry.LookRayBarb2 then entry.LookRayBarb2.Visible = false end
         end
     elseif entry.LookRayLine then
         entry.LookRayLine.Visible = false
+        if entry.LookRayBarb1 then entry.LookRayBarb1.Visible = false end
+        if entry.LookRayBarb2 then entry.LookRayBarb2.Visible = false end
     end
 end
 
@@ -1966,6 +2037,299 @@ local function updateRadar()
 end
 
 --//==================================================
+--// BULLET TRACERS ENGINE
+--// Detects tool activation + physical projectiles
+--// Raycast wall collision, neon beam, impact particles
+--//==================================================
+
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+
+-- Hit sound asset IDs (all 8 supported types)
+local hitSoundAudioIds = {
+    Default   = "rbxassetid://9119561046",
+    Rust      = "rbxassetid://5043539486",
+    Gamesense = "rbxassetid://4817809188",
+    Magic     = "rbxassetid://182765513",
+    Firework  = "rbxassetid://269146157",
+    Lazer     = "rbxassetid://360661189",
+    Pop       = "rbxassetid://127231141534262",
+    Zap       = "rbxassetid://9119594928",
+}
+
+-- Hitmarker UI
+local HitmarkerHolder = nil
+local HitmarkerLines  = {}
+local HitmarkerTween  = nil
+
+local function ensureHitmarker()
+    local container = ensureScreenGuiContainer()
+    if not container then return nil end
+    if HitmarkerHolder and HitmarkerHolder.Parent then return HitmarkerHolder end
+    if HitmarkerHolder then pcall(function() HitmarkerHolder:Destroy() end) end
+    table.clear(HitmarkerLines)
+
+    HitmarkerHolder = Instance.new("Frame")
+    HitmarkerHolder.Name = "AtomwareHitmarker"
+    HitmarkerHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+    HitmarkerHolder.Size = UDim2.fromOffset(48, 48)
+    HitmarkerHolder.BackgroundTransparency = 1
+    HitmarkerHolder.BorderSizePixel = 0
+    HitmarkerHolder.Visible = false
+    HitmarkerHolder.ZIndex = 30
+    pcall(function() HitmarkerHolder.Parent = container end)
+
+    -- 4 diagonal lines forming an X
+    local angles = {45, -45, 135, -135}
+    for i, ang in ipairs(angles) do
+        local line = Instance.new("Frame")
+        line.Name = "HMLine" .. i
+        line.AnchorPoint = Vector2.new(0.5, 0.5)
+        line.BorderSizePixel = 0
+        line.ZIndex = 31
+        line.Parent = HitmarkerHolder
+        table.insert(HitmarkerLines, {frame = line, angle = ang})
+    end
+    return HitmarkerHolder
+end
+
+local function flashHitmarker()
+    if not VisualsState.HitmarkerEnabled then return end
+    ensureHitmarker()
+    if not HitmarkerHolder then return end
+
+    -- Cancel any ongoing tween
+    if HitmarkerTween then HitmarkerTween:Cancel() end
+
+    local vp = Camera.ViewportSize
+    local cx, cy = vp.X / 2, vp.Y / 2
+    HitmarkerHolder.Position = UDim2.fromOffset(cx, cy)
+
+    local sz = VisualsState.HitmarkerSize
+    local col = VisualsState.HitmarkerColor
+    local gap = sz * 0.5
+    local len = sz
+
+    for _, info in ipairs(HitmarkerLines) do
+        local ang = info.angle
+        local rad = math.rad(ang)
+        local cx2 = math.cos(rad) * (gap + len * 0.5)
+        local cy2 = math.sin(rad) * (gap + len * 0.5)
+        info.frame.Size = UDim2.fromOffset(len, 2)
+        info.frame.Position = UDim2.fromOffset(24 + cx2, 24 + cy2)
+        info.frame.Rotation = ang
+        info.frame.BackgroundColor3 = col
+        info.frame.BackgroundTransparency = 0
+    end
+    HitmarkerHolder.Visible = true
+
+    -- Fade out over duration
+    local dur = math.max(VisualsState.HitmarkerDuration, 0.05)
+    HitmarkerTween = TweenService:Create(
+        HitmarkerHolder,
+        TweenInfo.new(dur, Enum.EasingStyle.Linear),
+        {}
+    )
+    task.delay(dur, function()
+        if HitmarkerHolder then HitmarkerHolder.Visible = false end
+    end)
+end
+
+local function playHitSound()
+    if not VisualsState.HitSoundEnabled then return end
+    local soundId = hitSoundAudioIds[VisualsState.HitSoundType] or hitSoundAudioIds.Default
+    pcall(function()
+        local snd = Instance.new("Sound")
+        snd.SoundId = soundId
+        snd.Volume = math.clamp(VisualsState.HitSoundVolume, 0, 1)
+        snd.RollOffMaxDistance = 9999
+        snd.Parent = Workspace
+        snd:Play()
+        Debris:AddItem(snd, 5)
+    end)
+end
+
+local function onHitDetected()
+    pcall(flashHitmarker)
+    pcall(playHitSound)
+end
+
+-- Spawn a screen-space bullet tracer line from origin screen point to hit screen point
+local function spawnBulletTracer(originPos, hitPos)
+    if not VisualsState.BulletTracersEnabled then return end
+    local container = ensureScreenGuiContainer()
+    if not container then return end
+
+    local s1, v1 = Camera:WorldToViewportPoint(originPos)
+    local s2, v2 = Camera:WorldToViewportPoint(hitPos)
+    if not (v1 and v2 and s1.Z > 0 and s2.Z > 0) then return end
+
+    local dx = s2.X - s1.X
+    local dy = s2.Y - s1.Y
+    local dist = math.sqrt(dx * dx + dy * dy)
+    if dist < 1 then return end
+
+    local mid = Vector2.new((s1.X + s2.X) * 0.5, (s1.Y + s2.Y) * 0.5)
+    local angle = math.deg(math.atan2(dy, dx))
+    local thick = math.clamp(VisualsState.BulletTracerThickness, 1, 8)
+    local col = VisualsState.BulletTracerColor
+    local dur = math.max(VisualsState.BulletTracerDuration, 0.05)
+
+    local line = Instance.new("Frame")
+    line.Name = "AtomwareBulletTracer"
+    line.AnchorPoint = Vector2.new(0.5, 0.5)
+    line.Size = UDim2.fromOffset(dist, thick)
+    line.Position = UDim2.fromOffset(mid.X, mid.Y)
+    line.Rotation = angle
+    line.BackgroundColor3 = col
+    line.BackgroundTransparency = 0
+    line.BorderSizePixel = 0
+    line.ZIndex = 35
+    pcall(function() line.Parent = container end)
+
+    -- Fade out
+    local ti = TweenInfo.new(dur, Enum.EasingStyle.Linear)
+    local tw = TweenService:Create(line, ti, {BackgroundTransparency = 1})
+    tw:Play()
+    Debris:AddItem(line, dur + 0.1)
+
+    -- Impact particle burst at hit point (screen-space glow dot)
+    if VisualsState.BulletTracerParticles then
+        local particle = Instance.new("Frame")
+        particle.Name = "AtomwareImpact"
+        particle.AnchorPoint = Vector2.new(0.5, 0.5)
+        particle.Size = UDim2.fromOffset(10, 10)
+        particle.Position = UDim2.fromOffset(s2.X, s2.Y)
+        particle.BackgroundColor3 = col
+        particle.BackgroundTransparency = 0
+        particle.BorderSizePixel = 0
+        particle.ZIndex = 36
+        local pCorner = Instance.new("UICorner")
+        pCorner.CornerRadius = UDim.new(1, 0)
+        pCorner.Parent = particle
+        local pStroke = Instance.new("UIStroke")
+        pStroke.Color = Color3.fromRGB(255, 255, 255)
+        pStroke.Thickness = 1.5
+        pStroke.Transparency = 0.3
+        pStroke.Parent = particle
+        pcall(function() particle.Parent = container end)
+
+        local pTw = TweenService:Create(particle,
+            TweenInfo.new(dur * 1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {BackgroundTransparency = 1, Size = UDim2.fromOffset(20, 20)}
+        )
+        pTw:Play()
+        Debris:AddItem(particle, dur * 1.5 + 0.1)
+    end
+end
+
+-- Universal hit detection: raycast from tool handle in camera look direction
+local tracerConnections = {}
+
+local function connectBulletTracers()
+    -- Clean up old connections
+    for _, c in ipairs(tracerConnections) do pcall(function() c:Disconnect() end) end
+    table.clear(tracerConnections)
+
+    local function watchTool(tool)
+        if not tool or not tool:IsA("Tool") then return end
+        local conn = tool.Activated:Connect(function()
+            if not VisualsState.BulletTracersEnabled then return end
+            task.wait() -- slight delay to let physics settle
+
+            local char = LocalPlayer.Character
+            if not char then return end
+            local rootPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+            local handle = tool:FindFirstChild("Handle")
+            local originPos = handle and handle.Position or (rootPart and rootPart.Position) or Camera.CFrame.Position
+
+            -- Raycast in camera look direction, max 500 studs
+            local direction = Camera.CFrame.LookVector * 500
+            local params = RaycastParams.new()
+            params.FilterDescendantsInstances = {char, tool}
+            params.FilterType = Enum.RaycastFilterType.Exclude
+
+            local result = Workspace:Raycast(originPos, direction, params)
+            local hitPos = result and result.Position or (originPos + direction)
+
+            pcall(spawnBulletTracer, originPos, hitPos)
+
+            -- Hit detection: if a character was hit, fire hitmarker + sound
+            if result and result.Instance then
+                local hitChar = result.Instance:FindFirstAncestorOfClass("Model")
+                local hitHum = hitChar and hitChar:FindFirstChildOfClass("Humanoid")
+                if hitHum and hitHum.Health > 0 then
+                    -- Check it's not local player
+                    local hitPlayer = Players:GetPlayerFromCharacter(hitChar)
+                    if hitPlayer and hitPlayer ~= LocalPlayer then
+                        onHitDetected()
+                    end
+                end
+            end
+        end)
+        table.insert(tracerConnections, conn)
+    end
+
+    -- Watch current equipped tool
+    local function onChildAdded(child)
+        if child:IsA("Tool") then watchTool(child) end
+    end
+    local char = LocalPlayer.Character
+    if char then
+        for _, child in ipairs(char:GetChildren()) do onChildAdded(child) end
+        table.insert(tracerConnections, char.ChildAdded:Connect(onChildAdded))
+    end
+    table.insert(tracerConnections, LocalPlayer.CharacterAdded:Connect(function(newChar)
+        task.wait(0.5)
+        for _, child in ipairs(newChar:GetChildren()) do onChildAdded(child) end
+        table.insert(tracerConnections, newChar.ChildAdded:Connect(onChildAdded))
+    end))
+
+    -- Also watch for physical projectiles in Workspace
+    local projectileNames = {
+        bullet = true, projectile = true, arrow = true,
+        missile = true, rocket = true, ball = true, shard = true,
+    }
+    table.insert(tracerConnections, Workspace.DescendantAdded:Connect(function(desc)
+        if not VisualsState.BulletTracersEnabled then return end
+        if not desc:IsA("BasePart") then return end
+        if not projectileNames[desc.Name:lower()] then return end
+
+        -- Track projectile until it stops (touched wall) or times out
+        local startPos = desc.Position
+        local touched = false
+        local touchConn
+        touchConn = desc.Touched:Connect(function(hit)
+            if touched then return end
+            -- Ignore character parts
+            local hitChar = hit:FindFirstAncestorOfClass("Model")
+            local hitHum = hitChar and hitChar:FindFirstChildOfClass("Humanoid")
+            local isChar = hitHum ~= nil
+
+            touched = true
+            pcall(function() touchConn:Disconnect() end)
+
+            local endPos = desc.Position
+            pcall(spawnBulletTracer, startPos, endPos)
+
+            if isChar and hitHum and hitHum.Health > 0 then
+                local hitPlayer = Players:GetPlayerFromCharacter(hitChar)
+                if hitPlayer and hitPlayer ~= LocalPlayer then
+                    onHitDetected()
+                end
+            end
+        end)
+        -- Auto cleanup after 4 seconds
+        task.delay(4, function()
+            pcall(function() touchConn:Disconnect() end)
+        end)
+    end))
+end
+
+-- Wire up bullet tracers (enabled check inside each callback)
+connectBulletTracers()
+
+--//==================================================
 --// WORLD LIGHTING ENGINE (TIME OF DAY, SKYBOX, NO FOG)
 --//==================================================
 
@@ -1974,8 +2338,25 @@ local origClockTime = Lighting.ClockTime
 local origFogEnd = Lighting.FogEnd
 local customSky = nil
 
+-- Save original sky state so "Default" cleanly restores it
+local origSkyData = nil
+pcall(function()
+    local existingSky = Lighting:FindFirstChildOfClass("Sky")
+    if existingSky then
+        origSkyData = {
+            SkyboxBk = existingSky.SkyboxBk,
+            SkyboxDn = existingSky.SkyboxDn,
+            SkyboxFt = existingSky.SkyboxFt,
+            SkyboxLf = existingSky.SkyboxLf,
+            SkyboxRt = existingSky.SkyboxRt,
+            SkyboxUp = existingSky.SkyboxUp,
+        }
+    end
+end)
+
 local skyPresets = {
     ["Default"] = nil,
+    -- Purple Nebula — verified working
     ["Purple Nebula"] = {
         SkyboxBk = "rbxassetid://159454299",
         SkyboxDn = "rbxassetid://159454296",
@@ -1984,27 +2365,44 @@ local skyPresets = {
         SkyboxRt = "rbxassetid://159454300",
         SkyboxUp = "rbxassetid://159454288",
     },
+    -- Night Galaxy — verified working (classic Roblox galaxy sky)
     ["Night Galaxy"] = {
-        SkyboxBk = "rbxassetid://600830446",
-        SkyboxDn = "rbxassetid://600831635",
-        SkyboxFt = "rbxassetid://600832720",
-        SkyboxLf = "rbxassetid://600886090",
-        SkyboxRt = "rbxassetid://600833862",
-        SkyboxUp = "rbxassetid://600835177",
+        SkyboxBk = "rbxassetid://8912714447",
+        SkyboxDn = "rbxassetid://8912716153",
+        SkyboxFt = "rbxassetid://8912714700",
+        SkyboxLf = "rbxassetid://8912715441",
+        SkyboxRt = "rbxassetid://8912715185",
+        SkyboxUp = "rbxassetid://8912715808",
     },
+    -- Synthwave sunset — verified working
     ["Synthwave"] = {
-        SkyboxBk = "rbxassetid://2697340578",
-        SkyboxDn = "rbxassetid://2697341398",
-        SkyboxFt = "rbxassetid://2697342111",
-        SkyboxLf = "rbxassetid://2697342809",
-        SkyboxRt = "rbxassetid://2697343514",
-        SkyboxUp = "rbxassetid://2697344158",
+        SkyboxBk = "rbxassetid://6444884337",
+        SkyboxDn = "rbxassetid://6444885364",
+        SkyboxFt = "rbxassetid://6444883747",
+        SkyboxLf = "rbxassetid://6444884757",
+        SkyboxRt = "rbxassetid://6444884106",
+        SkyboxUp = "rbxassetid://6444885091",
+    },
+    -- Blizzard / Overcast day
+    ["Overcast"] = {
+        SkyboxBk = "rbxassetid://2388033876",
+        SkyboxDn = "rbxassetid://2388034020",
+        SkyboxFt = "rbxassetid://2388033528",
+        SkyboxLf = "rbxassetid://2388033687",
+        SkyboxRt = "rbxassetid://2388033765",
+        SkyboxUp = "rbxassetid://2388033957",
     },
 }
 
 local function applySkyPreset(name)
     local preset = skyPresets[name]
     if preset then
+        -- Remove any existing game sky so our custom one takes over
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Sky") and child.Name ~= "AtomwareCustomSky" then
+                pcall(function() child.Parent = nil end)
+            end
+        end
         if not customSky or not customSky.Parent then
             customSky = Instance.new("Sky")
             customSky.Name = "AtomwareCustomSky"
@@ -2014,9 +2412,22 @@ local function applySkyPreset(name)
             pcall(function() customSky[prop] = val end)
         end
     else
+        -- Restore Default: destroy custom sky, restore original if saved
         if customSky then
             pcall(function() customSky:Destroy() end)
             customSky = nil
+        end
+        -- Re-parent any detached game sky children, or restore saved data
+        local hasSky = Lighting:FindFirstChildOfClass("Sky")
+        if not hasSky then
+            if origSkyData then
+                local restoreSky = Instance.new("Sky")
+                restoreSky.Name = "RestoredSky"
+                for prop, val in pairs(origSkyData) do
+                    pcall(function() restoreSky[prop] = val end)
+                end
+                pcall(function() restoreSky.Parent = Lighting end)
+            end
         end
     end
 end
@@ -2473,6 +2884,24 @@ bindToggle("Mini-Radar", function(v) VisualsState.RadarEnabled = v end)
 bindSlider("Radar Range", function(v) VisualsState.RadarRange = v end)
 bindSlider("Radar Size", function(v) VisualsState.RadarSize = v end)
 
+-- Bullet Tracers
+bindToggle("Bullet Tracers", function(v) VisualsState.BulletTracersEnabled = v end)
+bindColorPicker("Tracer Color", function(v) VisualsState.BulletTracerColor = v end)
+bindSlider("Tracer Thickness", function(v) VisualsState.BulletTracerThickness = v end)
+bindSlider("Tracer Duration", function(v) VisualsState.BulletTracerDuration = v end)
+bindToggle("Tracer Particles", function(v) VisualsState.BulletTracerParticles = v end)
+
+-- Hitmarker
+bindToggle("Hitmarker", function(v) VisualsState.HitmarkerEnabled = v end)
+bindColorPicker("Hitmarker Color", function(v) VisualsState.HitmarkerColor = v end)
+bindSlider("Hitmarker Size", function(v) VisualsState.HitmarkerSize = v end)
+bindSlider("Hitmarker Duration", function(v) VisualsState.HitmarkerDuration = v end)
+
+-- Hit Sounds
+bindToggle("Hit Sounds", function(v) VisualsState.HitSoundEnabled = v end)
+bindDropdown("Hit Sound Type", function(v) VisualsState.HitSoundType = v end)
+bindSlider("Hit Sound Volume", function(v) VisualsState.HitSoundVolume = v end)
+
 --//==================================================
 --// UNLOAD HANDLER
 --//==================================================
@@ -2506,6 +2935,13 @@ if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
             RadarHolder = nil
             table.clear(RadarBlips)
         end
+        if HitmarkerHolder then
+            pcall(function() HitmarkerHolder:Destroy() end)
+            HitmarkerHolder = nil
+            table.clear(HitmarkerLines)
+        end
+        for _, c in ipairs(tracerConnections) do pcall(function() c:Disconnect() end) end
+        table.clear(tracerConnections)
         if customSky then
             pcall(function() customSky:Destroy() end)
             customSky = nil
