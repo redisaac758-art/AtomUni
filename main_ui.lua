@@ -1017,15 +1017,30 @@ createToggle(bHat, "Rotate Hat", true)
 -- TAB 2: COMBAT
 -- ---------------------------------------------------
 local pCombat = Pages["Combat"]
-local _, bCombat = createCard(pCombat, "Combat")
-local cNotice = Instance.new("TextLabel")
-cNotice.Size = UDim2.new(1, 0, 0, 32)
-cNotice.BackgroundTransparency = 1
-cNotice.Text = "Universal Combat modules will load here."
-cNotice.TextColor3 = THEME.TextMuted
-cNotice.TextSize = 12
-cNotice.Font = FONT
-cNotice.Parent = bCombat
+
+local _, bAimbot = createCard(pCombat, "Aimbot")
+createToggle(bAimbot, "Enable Aimbot", false)
+createToggle(bAimbot, "Aim Lock", false)
+createDropdown(bAimbot, "Target Part", { "Head", "Torso", "HumanoidRootPart" }, "Head")
+createSlider(bAimbot, "Smoothness", 1, 20, 5, 1, "")
+createKeybind(bAimbot, "Aim Key", "MouseButton2")
+createToggle(bAimbot, "Wall Check", false)
+createToggle(bAimbot, "Aimbot Team Check", false)
+
+local _, bFOV = createCard(pCombat, "FOV Circle")
+createToggle(bFOV, "Show FOV Circle", false)
+createSlider(bFOV, "FOV Radius", 30, 500, 120, 5, " px")
+createColorPicker(bFOV, "FOV Color", Color3.fromRGB(157, 48, 255))
+createToggle(bFOV, "Filled FOV", false)
+createSlider(bFOV, "FOV Transparency", 0, 1, 0.2, 0.05, "")
+
+local _, bHitbox = createCard(pCombat, "Hitbox Expander")
+createToggle(bHitbox, "Enable Hitbox Expander", false)
+createDropdown(bHitbox, "Hitbox Part", { "Head", "HumanoidRootPart" }, "Head")
+createSlider(bHitbox, "Hitbox Size", 1.5, 20, 5, 0.5, " studs")
+createSlider(bHitbox, "Hitbox Transparency", 0, 1, 0.6, 0.05, "")
+createColorPicker(bHitbox, "Hitbox Color", Color3.fromRGB(157, 48, 255))
+createDropdown(bHitbox, "Hitbox Material", { "ForceField", "Neon", "Glass", "SmoothPlastic" }, "ForceField")
 
 -- ---------------------------------------------------
 -- TAB 3: PLAYER

@@ -76,6 +76,71 @@ end
 ensureScreenGuiContainer()
 
 --//==================================================
+--// FOV CIRCLE (2D SCREENGUI - CROSS-PLATFORM PC & MOBILE)
+--//==================================================
+
+local FOVCircleFrame = nil
+local FOVCircleStroke = nil
+local FOVCircleOutline = nil
+
+local function ensureFOVCircle()
+    local container = ensureScreenGuiContainer()
+    if not container then return nil end
+    if FOVCircleFrame and FOVCircleFrame.Parent then return FOVCircleFrame end
+
+    FOVCircleFrame = Instance.new("Frame")
+    FOVCircleFrame.Name = "AtomwareFOVCircle"
+    FOVCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    FOVCircleFrame.BorderSizePixel = 0
+    FOVCircleFrame.Visible = false
+    FOVCircleFrame.ZIndex = 1
+    FOVCircleFrame.Parent = container
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = FOVCircleFrame
+
+    FOVCircleStroke = Instance.new("UIStroke")
+    FOVCircleStroke.Name = "FOVStroke"
+    FOVCircleStroke.Thickness = 1.5
+    FOVCircleStroke.Color = VisualsState and VisualsState.FOVColor or Color3.fromRGB(157, 48, 255)
+    FOVCircleStroke.Transparency = VisualsState and VisualsState.FOVTransparency or 0.2
+    FOVCircleStroke.Parent = FOVCircleFrame
+
+    FOVCircleOutline = Instance.new("UIStroke")
+    FOVCircleOutline.Name = "FOVOutline"
+    FOVCircleOutline.Thickness = 1.0
+    FOVCircleOutline.Color = Color3.fromRGB(0, 0, 0)
+    FOVCircleOutline.Transparency = 0.5
+    FOVCircleOutline.Parent = FOVCircleFrame
+
+    return FOVCircleFrame
+end
+
+local function updateFOVCircle()
+    if VisualsState.FOVEnabled then
+        ensureFOVCircle()
+        if FOVCircleFrame then
+            local vp = Camera.ViewportSize
+            local rad = VisualsState.FOVRadius
+            FOVCircleFrame.Size = UDim2.fromOffset(rad * 2, rad * 2)
+            FOVCircleFrame.Position = UDim2.fromOffset(vp.X / 2, vp.Y / 2)
+            FOVCircleFrame.BackgroundColor3 = VisualsState.FOVColor
+            FOVCircleFrame.BackgroundTransparency = VisualsState.FOVFilled and (1 - VisualsState.FOVTransparency) or 1
+            if FOVCircleStroke then
+                FOVCircleStroke.Color = VisualsState.FOVColor
+                FOVCircleStroke.Transparency = VisualsState.FOVTransparency
+            end
+            FOVCircleFrame.Visible = true
+        end
+    else
+        if FOVCircleFrame then
+            FOVCircleFrame.Visible = false
+        end
+    end
+end
+
+--//==================================================
 --// CONFIGURATION STATE
 --//==================================================
 
@@ -107,8 +172,33 @@ local VisualsState = {
     HatOthers       = true,
     HatRadius       = 2,
     HatSegments     = 12,
-    HatColor        = Color3.fromRGB(175, 60, 255),
+    HatColor        = Color3.fromRGB(180, 80, 255),
     HatRotate       = true,
+
+    -- Combat / Aimbot
+    AimbotEnabled       = false,
+    AimActive           = false,
+    AimLock             = false,
+    TargetPart          = "Head",
+    AimbotSmoothness    = 5,
+    AimKey              = Enum.UserInputType.MouseButton2,
+    WallCheck           = false,
+    AimbotTeamCheck     = false,
+
+    -- FOV Circle
+    FOVEnabled          = false,
+    FOVRadius           = 120,
+    FOVColor            = Color3.fromRGB(157, 48, 255),
+    FOVFilled           = false,
+    FOVTransparency     = 0.2,
+
+    -- Hitbox Expander
+    HitboxEnabled       = false,
+    HitboxPart          = "Head",
+    HitboxSize          = 5,
+    HitboxTransparency  = 0.6,
+    HitboxColor         = Color3.fromRGB(157, 48, 255),
+    HitboxMaterial      = "ForceField",
 }
 
 --//==================================================
@@ -240,6 +330,168 @@ local function refreshAllChams()
     end
     for _, plr in ipairs(Players:GetPlayers()) do
         applyChams(plr)
+    end
+end
+
+--//==================================================
+--// HITBOX EXPANDER ENGINE (UNIVERSAL / CROSS-PLATFORM)
+--//==================================================
+
+local HitboxApplied = {}
+
+local function applyHitboxToPlayer(plr)
+    if not VisualsState.HitboxEnabled or plr == LocalPlayer then return end
+    local char = plr.Character
+    if not char then return end
+
+    local myTeam = nil
+    pcall(function() myTeam = LocalPlayer.Team end)
+    if VisualsState.TeamCheck and myTeam and plr.Team == myTeam then
+        return
+    end
+
+    local partName = VisualsState.HitboxPart
+    local part = char:FindFirstChild(partName)
+    if not part or not part:IsA("BasePart") then return end
+
+    if not HitboxApplied[plr] then
+        HitboxApplied[plr] = {
+            part = part,
+            origSize = part.Size,
+            origTrans = part.Transparency,
+            origColor = part.Color,
+            origMat = part.Material,
+            origCanCollide = part.CanCollide,
+        }
+    end
+
+    local size = VisualsState.HitboxSize
+    part.Size = Vector3.new(size, size, size)
+    part.Transparency = VisualsState.HitboxTransparency
+    part.CanCollide = false
+    part.Massless = true
+    part.Color = VisualsState.HitboxColor
+    part.Material = Enum.Material[VisualsState.HitboxMaterial] or Enum.Material.ForceField
+end
+
+local function restoreHitboxForPlayer(plr)
+    local rec = HitboxApplied[plr]
+    if rec then
+        local part = rec.part
+        if part and part.Parent then
+            part.Size = rec.origSize
+            part.Transparency = rec.origTrans
+            part.Color = rec.origColor
+            part.Material = rec.origMat
+            part.CanCollide = rec.origCanCollide
+        end
+        HitboxApplied[plr] = nil
+    end
+end
+
+local function restoreAllHitboxes()
+    for plr in pairs(HitboxApplied) do
+        restoreHitboxForPlayer(plr)
+    end
+    table.clear(HitboxApplied)
+end
+
+local function refreshAllHitboxes()
+    if not VisualsState.HitboxEnabled then
+        restoreAllHitboxes()
+        return
+    end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            applyHitboxToPlayer(plr)
+        end
+    end
+end
+
+--//==================================================
+--// AIMBOT ENGINE (UNIVERSAL / PC & MOBILE SUPPORT)
+--//==================================================
+
+local function getBestAimbotTarget()
+    if not VisualsState.AimbotEnabled then return nil end
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local bestTarget = nil
+    local bestDist = VisualsState.FOVRadius
+
+    local myTeam = nil
+    pcall(function() myTeam = LocalPlayer.Team end)
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local isTeammate = false
+            if VisualsState.AimbotTeamCheck and myTeam and plr.Team == myTeam then
+                isTeammate = true
+            end
+
+            if not isTeammate and plr.Character then
+                local char = plr.Character
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    local targetPartName = VisualsState.TargetPart
+                    if targetPartName == "Torso" then
+                        targetPartName = char:FindFirstChild("UpperTorso") and "UpperTorso" or "Torso"
+                    end
+                    local part = char:FindFirstChild(targetPartName) or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+                    if part then
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                        if screenPos.Z > 0 then
+                            local screenPt = Vector2.new(screenPos.X, screenPos.Y)
+                            local dist = (screenPt - screenCenter).Magnitude
+                            if dist <= bestDist then
+                                local isVisible = true
+                                if VisualsState.WallCheck then
+                                    local rayParams = RaycastParams.new()
+                                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                                    rayParams.FilterDescendantsInstances = { LocalPlayer.Character, Camera }
+                                    local rayResult = Workspace:Raycast(Camera.CFrame.Position, part.Position - Camera.CFrame.Position, rayParams)
+                                    if rayResult and not rayResult.Instance:IsDescendantOf(char) then
+                                        isVisible = false
+                                    end
+                                end
+
+                                if isVisible then
+                                    bestDist = dist
+                                    bestTarget = part
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestTarget
+end
+
+local function updateAimbot()
+    if not VisualsState.AimbotEnabled then return end
+
+    local isAiming = false
+    if VisualsState.AimLock then
+        isAiming = true
+    elseif VisualsState.AimActive then
+        isAiming = true
+    elseif UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        isAiming = true
+    end
+
+    if isAiming then
+        local targetPart = getBestAimbotTarget()
+        if targetPart then
+            local targetCF = CFrame.lookAt(Camera.CFrame.Position, targetPart.Position)
+            if VisualsState.AimbotSmoothness > 1 then
+                local alpha = math.clamp(1 / VisualsState.AimbotSmoothness, 0.05, 1)
+                Camera.CFrame = Camera.CFrame:Lerp(targetCF, alpha)
+            else
+                Camera.CFrame = targetCF
+            end
+        end
     end
 end
 
@@ -875,6 +1127,22 @@ end
 
 -- Render loop with individual try-catch to guarantee crash-free continuous rendering
 trackConnection(RunService.RenderStepped:Connect(function()
+    -- 1. FOV Circle Update
+    pcall(updateFOVCircle)
+
+    -- 2. Aimbot Logic
+    pcall(updateAimbot)
+
+    -- 3. Hitbox Expander Update
+    if VisualsState.HitboxEnabled then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                pcall(applyHitboxToPlayer, plr)
+            end
+        end
+    end
+
+    -- 4. Player ESP Update
     for _, plr in ipairs(Players:GetPlayers()) do
         local entry = ESPHolders[plr]
         if not entry then
@@ -900,11 +1168,13 @@ trackConnection(Players.PlayerAdded:Connect(function(plr)
     plr.CharacterAdded:Connect(function()
         task.wait(0.3)
         if VisualsState.ChamsEnabled then pcall(function() applyChams(plr) end) end
+        if VisualsState.HitboxEnabled then pcall(function() applyHitboxToPlayer(plr) end) end
     end)
 end))
 
 trackConnection(Players.PlayerRemoving:Connect(function(plr)
     pcall(function() restoreChams(plr) end)
+    pcall(function() restoreHitboxForPlayer(plr) end)
     if ESPHolders[plr] then
         pcall(function() removePlayerESP(ESPHolders[plr]) end)
         ESPHolders[plr] = nil
@@ -1008,6 +1278,52 @@ bindSlider("Hat Segments", function(v) VisualsState.HatSegments = v end)
 bindColorPicker("Hat Color", function(v) VisualsState.HatColor = v end)
 bindToggle("Rotate Hat", function(v) VisualsState.HatRotate = v end)
 
+-- Combat / Aimbot
+bindToggle("Enable Aimbot", function(v) VisualsState.AimbotEnabled = v end)
+bindToggle("Aim Lock", function(v) VisualsState.AimLock = v end)
+bindDropdown("Target Part", function(v) VisualsState.TargetPart = v end)
+bindSlider("Smoothness", function(v) VisualsState.AimbotSmoothness = v end)
+bindToggle("Wall Check", function(v) VisualsState.WallCheck = v end)
+bindToggle("Aimbot Team Check", function(v) VisualsState.AimbotTeamCheck = v end)
+bindToggle("Aim Active", function(v) VisualsState.AimActive = v end)
+
+-- FOV Circle
+bindToggle("Show FOV Circle", function(v)
+    VisualsState.FOVEnabled = v
+    if not v and FOVCircleFrame then FOVCircleFrame.Visible = false end
+end)
+bindSlider("FOV Radius", function(v) VisualsState.FOVRadius = v end)
+bindColorPicker("FOV Color", function(v) VisualsState.FOVColor = v end)
+bindToggle("Filled FOV", function(v) VisualsState.FOVFilled = v end)
+bindSlider("FOV Transparency", function(v) VisualsState.FOVTransparency = v end)
+
+-- Hitbox Expander
+bindToggle("Enable Hitbox Expander", function(v)
+    VisualsState.HitboxEnabled = v
+    refreshAllHitboxes()
+end)
+bindDropdown("Hitbox Part", function(v)
+    restoreAllHitboxes()
+    VisualsState.HitboxPart = v
+    refreshAllHitboxes()
+end)
+bindSlider("Hitbox Size", function(v)
+    VisualsState.HitboxSize = v
+    refreshAllHitboxes()
+end)
+bindSlider("Hitbox Transparency", function(v)
+    VisualsState.HitboxTransparency = v
+    refreshAllHitboxes()
+end)
+bindColorPicker("Hitbox Color", function(v)
+    VisualsState.HitboxColor = v
+    refreshAllHitboxes()
+end)
+bindDropdown("Hitbox Material", function(v)
+    VisualsState.HitboxMaterial = v
+    refreshAllHitboxes()
+end)
+
 --//==================================================
 --// UNLOAD HANDLER
 --//==================================================
@@ -1015,10 +1331,15 @@ bindToggle("Rotate Hat", function(v) VisualsState.HatRotate = v end)
 if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
     _G.AtomwareConfig:OnUnload(function()
         restoreAllChams()
+        restoreAllHitboxes()
         for _, entry in pairs(ESPHolders) do
             removePlayerESP(entry)
         end
         table.clear(ESPHolders)
+        if FOVCircleFrame then
+            pcall(function() FOVCircleFrame:Destroy() end)
+            FOVCircleFrame = nil
+        end
         if ScreenGuiContainer then
             pcall(function() ScreenGuiContainer:Destroy() end)
             ScreenGuiContainer = nil
@@ -1027,4 +1348,4 @@ if _G.AtomwareConfig and type(_G.AtomwareConfig.OnUnload) == "function" then
 end
 
 _G.AtomwareFeaturesLoaded = true
-print("Atomware Universal: Cross-Platform Visuals Engine Online")
+print("Atomware Universal: Cross-Platform Visuals & Combat Engine Online")

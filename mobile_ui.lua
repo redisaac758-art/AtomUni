@@ -369,6 +369,11 @@ local function setMobileControlScale(value)
         MobileToggleBtn.Position = UDim2.fromOffset(toggleSize / 2, dockHeight / 2)
         MobileToggleLockBtn.Position = UDim2.fromOffset(toggleSize + gap + lockSize / 2, dockHeight / 2)
     end
+    if MobileAimDock and MobileAimBtn then
+        local aimSize = 54 * mobileControlScale
+        MobileAimDock.Size = UDim2.fromOffset(aimSize, aimSize)
+        MobileAimBtn.Size = UDim2.fromOffset(aimSize, aimSize)
+    end
     clampAllMobileControls(true)
     task.defer(function() clampAllMobileControls(true) end)
 end
@@ -430,6 +435,85 @@ local function makeFloatingToggle(onTap)
     return toggle
 end
 
+local MobileAimDock = nil
+local MobileAimBtn = nil
+local mobileAimActive = false
+local holdToAim = false
+
+local function setMobileAimState(active)
+    mobileAimActive = active
+    if MobileAimBtn then
+        if active then
+            MobileAimBtn.BackgroundColor3 = THEME.Accent
+            MobileAimBtn.TextColor3 = THEME.Text
+            MobileAimBtn.Text = "AIM: ON"
+        else
+            MobileAimBtn.BackgroundColor3 = THEME.Header
+            MobileAimBtn.TextColor3 = THEME.TextMuted
+            MobileAimBtn.Text = "AIM"
+        end
+    end
+    if _G.FireEvent then
+        _G.FireEvent("Aim Active", active)
+    end
+end
+
+local function setHoldToAim(v)
+    holdToAim = v
+    if mobileAimActive then
+        setMobileAimState(false)
+    end
+end
+
+local function makeFloatingAimButton()
+    local dock = Instance.new("Frame")
+    dock.Name = "MobileAimDock"
+    dock.AnchorPoint = Vector2.new(0.5, 0.5)
+    dock.BackgroundTransparency = 1
+    dock.ZIndex = 150
+    dock.Parent = ScreenGui
+
+    local btn = Instance.new("TextButton")
+    btn.Name = "MobileAimBtn"
+    btn.AnchorPoint = Vector2.new(0.5, 0.5)
+    btn.Size = UDim2.fromOffset(54, 54)
+    btn.BackgroundColor3 = THEME.Header
+    btn.Text = "AIM"
+    btn.TextColor3 = THEME.TextMuted
+    btn.TextSize = 13
+    btn.Font = FONT_BOLD
+    btn.AutoButtonColor = false
+    btn.ZIndex = 151
+    btn.Parent = dock
+    corner(btn, 16)
+    stroke(btn, THEME.Accent, 1.5)
+
+    MobileAimDock = dock
+    MobileAimBtn = btn
+
+    local function onAimTap()
+        if not holdToAim then
+            setMobileAimState(not mobileAimActive)
+        end
+    end
+
+    configureMobileControl(dock, "MobileAim", 0.88, 0.52, btn, onAimTap)
+
+    trackConnection(btn.InputBegan:Connect(function(input)
+        if holdToAim and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then
+            setMobileAimState(true)
+        end
+    end))
+
+    trackConnection(btn.InputEnded:Connect(function(input)
+        if holdToAim and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then
+            setMobileAimState(false)
+        end
+    end))
+
+    return btn
+end
+
 --//==================================================
 --// MAIN WINDOW CONTAINER (FIXED NON-SCROLLING HEADER & TABS)
 --//==================================================
@@ -470,6 +554,7 @@ end
 MobileToggleBtn = makeFloatingToggle(function()
     setUIVisible(not UIVisible)
 end)
+MobileAimBtn = makeFloatingAimButton()
 
 -- Fixed Header (Never Scrolls)
 local Header = Instance.new("Frame")
@@ -1337,15 +1422,39 @@ createToggle(bHat, "Rotate Hat", true)
 -- TAB 2: COMBAT
 -- ---------------------------------------------------
 local lCombat, rCombat = getCols("Combat")
-local _, bCombat = createCard(lCombat, "Combat")
-local cNotice = Instance.new("TextLabel")
-cNotice.Size = UDim2.new(1, 0, 0, 32)
-cNotice.BackgroundTransparency = 1
-cNotice.Text = "Universal Combat modules will load here."
-cNotice.TextColor3 = THEME.TextMuted
-cNotice.TextSize = 13
-cNotice.Font = FONT
-cNotice.Parent = bCombat
+
+-- LEFT COLUMN: AIMBOT & MOBILE CONTROLS
+local _, bAimbot = createCard(lCombat, "Aimbot")
+createToggle(bAimbot, "Enable Aimbot", false)
+createToggle(bAimbot, "Aim Lock", false)
+createDropdown(bAimbot, "Target Part", { "Head", "Torso", "HumanoidRootPart" }, "Head")
+createSlider(bAimbot, "Smoothness", 1, 20, 5, 1, "")
+createToggle(bAimbot, "Wall Check", false)
+createToggle(bAimbot, "Aimbot Team Check", false)
+
+local _, bMobileAim = createCard(lCombat, "Mobile Aim Controls")
+createToggle(bMobileAim, "Show Aim Button", true, function(v)
+    if MobileAimDock then MobileAimDock.Visible = v end
+end)
+createToggle(bMobileAim, "Hold to Aim", false, function(v)
+    setHoldToAim(v)
+end)
+
+-- RIGHT COLUMN: FOV CIRCLE & HITBOX EXPANDER
+local _, bFOV = createCard(rCombat, "FOV Circle")
+createToggle(bFOV, "Show FOV Circle", false)
+createSlider(bFOV, "FOV Radius", 30, 500, 120, 5, " px")
+createColorPicker(bFOV, "FOV Color", Color3.fromRGB(157, 48, 255))
+createToggle(bFOV, "Filled FOV", false)
+createSlider(bFOV, "FOV Transparency", 0, 1, 0.2, 0.05, "")
+
+local _, bHitbox = createCard(rCombat, "Hitbox Expander")
+createToggle(bHitbox, "Enable Hitbox Expander", false)
+createDropdown(bHitbox, "Hitbox Part", { "Head", "HumanoidRootPart" }, "Head")
+createSlider(bHitbox, "Hitbox Size", 1.5, 20, 5, 0.5, " studs")
+createSlider(bHitbox, "Hitbox Transparency", 0, 1, 0.6, 0.05, "")
+createColorPicker(bHitbox, "Hitbox Color", Color3.fromRGB(157, 48, 255))
+createDropdown(bHitbox, "Hitbox Material", { "ForceField", "Neon", "Glass", "SmoothPlastic" }, "ForceField")
 
 -- ---------------------------------------------------
 -- TAB 3: PLAYER
